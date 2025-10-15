@@ -1,0 +1,336 @@
+// Simple UPS Dashboard
+const DEBUG = localStorage.getItem('debug') === 'true' || true; // Temporarily enable debug
+const log = DEBUG ? console.log.bind(console, '[UPS]') : () => {};
+
+// Global state
+const charts = {};
+const evtSource = new EventSource('/api/stream');
+let lastUpdateTs = {};
+
+// Core tile types
+const TILES = {
+  load_pct: { metric: 'LOADPCT', label: 'Load %', type: 'gauge' },
+  battery_pct: { metric: 'BCHARGE', label: 'Battery %', type: 'gauge' },  
+  watts_usage: { metric: 'DERIVED_WATTS', label: 'Watts', type: 'line' },
+  volt_line: { metric: 'LINEV', label: 'Line V', type: 'value' },
+  volt_output: { metric: 'OUTPUTV', label: 'Output V', type: 'value' }
+};
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', () => {
+  log('DOM loaded, Chart.js available:', typeof Chart !== 'undefined');
+  initializeDashboard();
+  setupEventListeners();
+  setupDynamicCardObserver();
+});
+
+function setupDynamicCardObserver() {
+  // Watch for new UPS cards being added to the DOM
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach((node) => {
+        if (node.nodeType === Node.ELEMENT_NODE && node.classList?.contains('card')) {
+          const name = node.id.replace('card-', '');
+          log('New UPS card detected:', name);
+          createTiles(name);
+          initChartsForUPS(name);
+        }
+      });
+    });
+  });
+  
+  const upsCards = document.getElementById('ups-cards');
+  if (upsCards) {
+    observer.observe(upsCards, { childList: true });
+  }
+}
+
+function initializeDashboard() {
+  document.querySelectorAll('.card').forEach(card => {
+    const name = card.id.replace('card-', '');
+    createTiles(name);
+  });
+}
+
+function setupEventListeners() {
+  // Reset button handlers
+  document.addEventListener('click', (e) => {
+    if (e.target.matches('[data-reset-layout]')) {
+      const card = e.target.closest('.card');
+      const name = card.id.replace('card-', '');
+      resetLayout(name);
+    }
+  });
+}
+
+function createTiles(upsName) {
+  log('Creating tiles for UPS:', upsName);
+  const grid = document.querySelector(`#card-${upsName} [data-tile-grid]`);
+  if (!grid) {
+    console.warn('Grid not found for UPS:', upsName);
+    return;
+  }
+  
+  grid.innerHTML = '';
+  log('Creating', Object.keys(TILES).length, 'tiles');
+  
+  Object.entries(TILES).forEach(([id, config], index) => {
+    log('Creating tile:', id, config);
+    const tile = document.createElement('div');
+    tile.className = 'tile';
+    tile.dataset.tile = id;
+    tile.innerHTML = `
+      <h4>${config.label}</h4>
+      <div class="tile-body">
+        ${createTileContent(upsName, id, config)}
+      </div>
+    `;
+    
+    // Simple positioning
+    const x = (index % 3) * 220 + 10;
+    const y = Math.floor(index / 3) * 180 + 10;
+    tile.style.left = x + 'px';
+    tile.style.top = y + 'px';
+    tile.style.width = '200px';
+    tile.style.height = '160px';
+    
+    grid.appendChild(tile);
+  });
+}
+
+function createTileContent(upsName, tileId, config) {
+  if (config.type === 'gauge') {
+    return `<div class="gauge" data-gauge="${config.metric}">
+      <svg viewBox="0 0 120 70">
+        <path d="M10 60 A50 50 0 0 1 110 60" class="gauge-bg" />
+        <path d="M10 60 A50 50 0 0 1 110 60" class="gauge-fill" stroke-dasharray="0 157" />
+        <text x="60" y="45" class="gauge-text" text-anchor="middle">--%</text>
+      </svg>
+    </div>`;
+  } else if (config.type === 'value') {
+    const unit = config.metric.includes('V') ? 'V' : 'W';
+    return `<div class="big-value-container">
+      <span class="big-value" data-value="${config.metric}">--</span>
+      <span class="value-unit">${unit}</span>
+    </div>`;
+  } else if (config.type === 'line') {
+    const canvasId = `chart-${upsName}-${tileId}`;
+    return `<canvas id="${canvasId}" height="90"></canvas>`;
+  }
+  return '<div>--</div>';
+}
+
+function resetLayout(upsName) {
+  log('Resetting layout for', upsName);
+  createTiles(upsName);
+  
+  // Clear any existing charts
+  Object.keys(charts).forEach(key => {
+    if (key.includes(upsName)) {
+      charts[key].destroy();
+      delete charts[key];
+    }
+  });
+  
+  // Recreate charts
+  initChartsForUPS(upsName);
+}
+
+function initChartsForUPS(upsName) {
+  log('Initializing charts for UPS:', upsName);
+  Object.entries(TILES).forEach(([id, config]) => {
+    if (config.type === 'line') {
+      const canvasId = `chart-${upsName}-${id}`;
+      const canvas = document.getElementById(canvasId);
+      log('Looking for canvas:', canvasId, 'found:', !!canvas);
+      if (canvas) {
+        try {
+          charts[canvasId] = new Chart(canvas, {
+            type: 'line',
+            data: {
+              labels: [],
+              datasets: [{
+                label: config.label,
+                data: [],
+                borderColor: '#ff6b35',
+                backgroundColor: 'rgba(255,107,53,0.15)',
+                tension: 0.3,
+                fill: true
+              }]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                y: { beginAtZero: false },
+                x: { display: false }
+              },
+              plugins: { legend: { display: false } }
+            }
+          });
+          log('Chart created successfully for:', canvasId);
+        } catch (error) {
+          console.error('Error creating chart:', canvasId, error);
+        }
+      } else {
+        console.warn('Canvas not found for chart:', canvasId);
+      }
+    }
+  });
+}
+
+// SSE Event handling
+evtSource.onmessage = (e) => {
+  try {
+    const payload = JSON.parse(e.data);
+    const snapshots = payload.snapshots || {};
+    
+    Object.entries(snapshots).forEach(([name, snap]) => {
+      updateUPSData(name, snap);
+    });
+  } catch (err) {
+    console.error('SSE Error:', err);
+  }
+};
+
+function updateUPSData(name, data) {
+  const card = document.getElementById(`card-${name}`);
+  if (!card) return;
+  
+  // Ensure tiles exist for this UPS (in case card was added dynamically)
+  const grid = card.querySelector('[data-tile-grid]');
+  if (grid && grid.children.length === 0) {
+    log('Creating tiles for new UPS:', name);
+    createTiles(name);
+    initChartsForUPS(name);
+  }
+  
+  lastUpdateTs[name] = Date.now();
+  
+  // Update status badges
+  updateBadges(card, data);
+  
+  // Update tiles
+  Object.entries(TILES).forEach(([id, config]) => {
+    updateTile(name, id, config, data);
+  });
+}
+
+function updateBadges(card, data) {
+  // Update status
+  const status = card.querySelector('[data-field="STATUS"]');
+  if (status) {
+    status.textContent = data.STATUS || 'UNKNOWN';
+    status.className = 'ups-status ' + (data.STATUS === 'ONLINE' ? 'online' : 'unknown');
+  }
+  
+  // Update model/serial display
+  const modelSerial = card.querySelector('[data-model-serial]');
+  if (modelSerial && (data.MODEL || data.SERIALNO)) {
+    const parts = [];
+    if (data.MODEL) parts.push(data.MODEL);
+    if (data.SERIALNO) parts.push(`S/N: ${data.SERIALNO}`);
+    modelSerial.textContent = parts.join(' • ');
+  }
+  
+  // Update other badges
+  ['RUNTIME_MINUTES', 'DERIVED_WATTS', 'HEADROOM_PCT'].forEach(field => {
+    const badge = card.querySelector(`[data-field="${field}"]`);
+    if (badge && data[field]) {
+      const value = parseFloat(data[field]) || 0;
+      const unit = field === 'RUNTIME_MINUTES' ? ' m' : 
+                   field === 'DERIVED_WATTS' ? ' W' : ' headroom';
+      badge.textContent = value.toFixed(0) + unit;
+    }
+  });
+}
+
+function updateTile(upsName, tileId, config, data) {
+  const rawValue = data[config.metric] || (config.metric === 'OUTPUTV' ? data['LINEV'] : null);
+  if (!rawValue) return;
+  
+  const value = parseFloat(rawValue) || 0;
+  
+  if (config.type === 'gauge') {
+    updateGauge(upsName, config.metric, value);
+  } else if (config.type === 'value') {
+    updateValueDisplay(upsName, config.metric, value);
+  } else if (config.type === 'line') {
+    updateChart(upsName, tileId, value);
+  }
+}
+
+function updateGauge(upsName, metric, value) {
+  const gauge = document.querySelector(`#card-${upsName} [data-gauge="${metric}"]`);
+  if (!gauge) return;
+  
+  const fill = gauge.querySelector('.gauge-fill');
+  const text = gauge.querySelector('.gauge-text');
+  
+  if (fill && text) {
+    const total = 157;
+    const filled = (value / 100) * total;
+    fill.setAttribute('stroke-dasharray', `${filled} ${total - filled}`);
+    text.textContent = value.toFixed(0) + '%';
+    
+    // Color coding
+    gauge.className = 'gauge ' + (value < 15 ? 'critical' : value < 35 ? 'low' : 'good');
+  }
+}
+
+function updateValueDisplay(upsName, metric, value) {
+  const element = document.querySelector(`#card-${upsName} [data-value="${metric}"]`);
+  if (!element) return;
+  
+  element.textContent = value.toFixed(1);
+  
+  // Voltage color coding
+  if (metric.includes('V')) {
+    element.className = 'big-value ' + (value >= 114 && value <= 126 ? 'voltage-good' : 'voltage-bad');
+  }
+}
+
+function updateChart(upsName, tileId, value) {
+  const chartId = `chart-${upsName}-${tileId}`;
+  const chart = charts[chartId];
+  if (!chart) return;
+  
+  const now = new Date().toLocaleTimeString();
+  chart.data.labels.push(now);
+  chart.data.datasets[0].data.push(value);
+  
+  // Keep last 60 points
+  if (chart.data.labels.length > 60) {
+    chart.data.labels.shift();
+    chart.data.datasets[0].data.shift();
+  }
+  
+  // Auto-scale for watts
+  if (tileId === 'watts_usage') {
+    const values = chart.data.datasets[0].data;
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = max - min;
+    
+    if (range <= 50) {
+      chart.options.scales.y.min = Math.max(0, min - 10);
+      chart.options.scales.y.max = max + 10;
+    }
+  }
+  
+  chart.update('none');
+}
+
+// Initialize charts after DOM is ready
+setTimeout(() => {
+  document.querySelectorAll('.card').forEach(card => {
+    const name = card.id.replace('card-', '');
+    initChartsForUPS(name);
+  });
+}, 100);
+
+// Debug controls
+window.upsDebug = {
+  enable: () => { localStorage.setItem('debug', 'true'); location.reload(); },
+  disable: () => { localStorage.removeItem('debug'); location.reload(); }
+};

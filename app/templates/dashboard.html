@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>UPS Dashboard</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div class="header">
+    <h1>APC UPS Dashboard</h1>
+    <nav>
+      <a href="/config" class="config-link">⚙️ Configuration</a>
+    </nav>
+  </div>
+  <div id="ups-cards" data-ui='{{ ui_cfg | tojson }}'>
+    {% for ups in ups_list %}
+      <div class="card" id="card-{{ ups.name }}">
+        <div class="card-header">
+          <h2>{{ ups.name }}</h2>
+          <div class="ups-connection" data-field-conn>{{ ups.host }}:{{ ups.port }}</div>
+          <button class="add-metric-btn" data-add-metric title="Add metric tile">+</button>
+          <button class="reset-layout-btn" data-reset-layout title="Reset tile layout">⟳</button>
+        </div>
+        <div class="metrics">
+          <div class="highline">
+            <span class="ups-status unknown" data-field="STATUS">-</span>
+            <span class="badge" data-field="RUNTIME_MINUTES" data-badge="runtime">- m</span>
+            <span class="badge" data-field="DERIVED_WATTS" data-badge="watts">- W</span>
+            <span class="badge" data-field="HEADROOM_PCT" data-badge="headroom">- headroom</span>
+          </div>
+          <div class="tile-grid" data-tile-grid></div>
+        </div>
+        <div class="ups-footer" data-ups-footer></div>
+      </div>
+    {% endfor %}
+    {% if not ups_list %}
+      <div class="empty-state">
+        <h3>No UPS Configured</h3>
+        <p>Get started by <a href="/config">adding a UPS configuration</a>.</p>
+      </div>
+    {% endif %}
+  </div>
+<script src="/static/js/dashboard.js?v=1"></script>
+</body>
+</html>

@@ -1,0 +1,1496 @@
+// Debug configuration
+const DEBUG_ENABLED = localStorage.getItem('ups_debug') === 'true' || 
+                     new URLSearchParams(window.location.search).get('debug') === 'true';
+
+// Debug logging helper
+function debugLog(...args) {
+  if (DEBUG_ENABLED) console.log('[UPS Debug]', ...args);
+}
+
+function debugWarn(...args) {
+  if (DEBUG_ENABLED) console.warn('[UPS Debug]', ...args);
+}
+
+function debugError(...args) {
+  console.error('[UPS Error]', ...args); // Always log errors
+}
+
+// Debug control functions (accessible from browser console)
+window.upsDebug = {
+  enable: () => {
+    localStorage.setItem('ups_debug', 'true');
+    console.log('UPS Debug mode enabled. Reload page to activate.');
+    location.reload();
+  },
+  disable: () => {
+    localStorage.removeItem('ups_debug');
+    console.log('UPS Debug mode disabled. Reload page to deactivate.');
+    location.reload();
+  },
+  status: () => {
+    console.log(`UPS Debug mode: ${DEBUG_ENABLED ? 'ENABLED' : 'DISABLED'}`);
+    if (!DEBUG_ENABLED) {
+      console.log('To enable: upsDebug.enable() or add ?debug=true to URL');
+    }
+    return DEBUG_ENABLED;
+  }
+};
+
+const evtSource = new EventSource('/api/stream');
+const charts = {};
+// Tile registry and state
+const TILE_REGISTRY = [
+  { id: 'load_pct', metric: 'LOADPCT', label: 'UPS Load %', short: 'Load', types: ['gauge','line','bar'], defaultType: 'gauge' },
+  { id: 'battery_pct', metric: 'BCHARGE', label: 'Battery %', short: 'Battery', types: ['gauge','line','bar'], defaultType: 'gauge' },
+  { id: 'watts_usage', metric: 'DERIVED_WATTS', label: 'Watts', short: 'Watts', types: ['line','bar','value'], defaultType: 'line' },
+  { id: 'volt_line', metric: 'LINEV', label: 'Line Voltage', short: 'Line V', types: ['value'], defaultType: 'value' },
+  { id: 'volt_output', metric: 'OUTPUTV', label: 'Output Voltage', short: 'Output V', types: ['value'], defaultType: 'value', fallbackMetric: 'LINEV' }
+];
+// Storage keys and saved state
+const TILE_TYPE_KEY = 'upsTileTypes.v1';
+const TILE_ORDER_KEY = 'upsTileOrder.v1';
+const TILE_HIDDEN_KEY = 'upsTileHidden.v1';
+const CUSTOM_TILES_KEY = 'upsCustomTiles.v1';
+const TILE_POS_KEY = 'upsTilePos.v1';
+const CARD_SIZE_KEY = 'upsCardSizes.v1';
+const CARD_MODE_KEY = 'upsCardMode.v1';
+
+let savedTileTypes = {};
+let savedTileOrder = {};
+let savedTileHidden = {};
+let savedCustomTiles = {};
+let savedTilePos = {};
+let savedCardSizes = {};
+let savedSizes = {}; // Legacy card sizes for compatibility
+let savedModes = {};
+
+// Helper functions for localStorage
+function loadFromStorage(key, defaultValue = {}) {
+  try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch(_) { return defaultValue; }
+}
+
+function saveToStorage(key, data) {
+  try { localStorage.setItem(key, JSON.stringify(data)); } catch(_) {}
+}
+
+// Initialize localStorage data
+savedTileTypes = loadFromStorage(TILE_TYPE_KEY);
+savedTileOrder = loadFromStorage(TILE_ORDER_KEY);
+savedTileHidden = loadFromStorage(TILE_HIDDEN_KEY);
+savedCustomTiles = loadFromStorage(CUSTOM_TILES_KEY);
+savedTilePos = loadFromStorage(TILE_POS_KEY);
+savedCardSizes = loadFromStorage(CARD_SIZE_KEY);
+savedSizes = loadFromStorage(CARD_SIZE_KEY); // Legacy compatibility
+savedModes = loadFromStorage(CARD_MODE_KEY);
+// UI Configuration
+const uiCfgEl = document.getElementById('ups-cards');
+let uiCfg = loadFromStorage('data-ui', {});
+try { 
+  const dataUi = uiCfgEl?.getAttribute('data-ui');
+  if (dataUi) uiCfg = JSON.parse(dataUi);
+} catch(_) {}
+// Set defaults
+uiCfg.allow_resize = uiCfg.allow_resize !== false;
+// Human-friendly metric labels for dropdown & headers
+const METRIC_LABELS = {
+  'LOADPCT': 'UPS Load %',
+  'BCHARGE': 'Battery %',
+  'DERIVED_WATTS': 'Watts',
+  'HEADROOM_PCT': 'Headroom %',
+  'RUNTIME_MINUTES': 'Runtime (min)',
+  'LINEV': 'Line Voltage',
+  'OUTPUTV': 'Output Voltage',
+  'BATTV': 'Battery Voltage'
+};
+
+
+
+// Maintain a map of last update timestamps to detect stale UPS
+const lastUpdateTs = {};
+const UPS_STALE_SECONDS = 120; // mark offline after 2 minutes inactivity
+// Freeform tile layout enhancements
+const SNAP_GRID = 20; // pixel grid for snapping
+let selectedTiles = new Set();
+function snap(v) { return Math.round(v / SNAP_GRID) * SNAP_GRID; }
+function clearSelection() { selectedTiles.forEach(t => t.classList.remove('selected')); selectedTiles.clear(); }
+function toggleTileSelection(tile, additive) {
+  if (!additive) clearSelection();
+  if (selectedTiles.has(tile)) { tile.classList.remove('selected'); selectedTiles.delete(tile); }
+  else { tile.classList.add('selected'); selectedTiles.add(tile); }
+}
+
+// --- Redis-backed tile layout persistence ---
+async function loadServerTileConfig(name) {
+  try {
+    const resp = await fetch(`/api/ups/${name}/ui_tiles`);
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch { return null; }
+}
+
+  async function resetLayout(name) {
+    // Clear local state for this UPS
+    delete savedTilePos[name];
+    delete savedTileOrder[name];
+    delete savedTileHidden[name];
+    delete savedCustomTiles[name];
+    delete savedTileTypes[name];
+    delete savedCardSizes[name];
+    saveToStorage(TILE_POS_KEY, savedTilePos);
+    saveToStorage(TILE_ORDER_KEY, savedTileOrder);
+    saveToStorage(TILE_HIDDEN_KEY, savedTileHidden);
+    saveToStorage(CUSTOM_TILES_KEY, savedCustomTiles);
+    saveToStorage(TILE_TYPE_KEY, savedTileTypes);
+    saveToStorage(CARD_SIZE_KEY, savedCardSizes);
+    // Clear server layout
+    try { 
+      await fetch(`/api/ups/${name}/ui_tiles`, { method:'DELETE' }); 
+      debugLog(`Cleared server layout for ${name}`);
+    } catch(err) {
+      debugWarn(`Failed to clear server layout for ${name}:`, err);
+    }
+    // Rebuild grid with defaults then cascade layout
+    const card = document.getElementById(`card-${name}`);
+    if (!card) return;
+    const grid = card.querySelector('[data-tile-grid]');
+    if (!grid) return;
+    grid.innerHTML = '';
+    // Destroy any existing charts for this UPS
+    Object.keys(charts).forEach(chartId => {
+      if (chartId.includes(`tile-${name}-`)) {
+        charts[chartId].destroy();
+        delete charts[chartId];
+      }
+    });
+    
+    // Recreate default tile types
+    // Static default layout definition (positions and types)
+    savedTileTypes[name] = {
+      load_pct: 'gauge',
+      battery_pct: 'gauge',
+      volt_line: 'value',
+      volt_output: 'value',
+      watts_usage: 'line'
+    };
+    try { localStorage.setItem(TILE_TYPE_KEY, JSON.stringify(savedTileTypes)); } catch{}
+    
+    initTilesFor(name, grid);
+    
+    // Force rebuild all tiles with correct types
+    rebuildAllTiles(name);
+    
+    // Auto-arrange tiles with optimal layout
+    autoArrangeTiles(name, grid);
+    debugLog(`Reset layout completed for ${name}`);
+    // Force chart resize after positioning
+    setTimeout(()=>{ Object.values(charts).forEach(ch=>{ try{ ch.resize(); }catch{} }); }, 50);
+    
+    persistTilePositions(name, grid);
+    scheduleServerTileSave(name);
+  }
+
+let pendingSave = null;
+function scheduleServerTileSave(name) {
+  if (pendingSave) clearTimeout(pendingSave);
+  pendingSave = setTimeout(() => saveServerTileConfig(name), 800);
+}
+
+function autoArrangeTiles(name, grid) {
+  const tiles = Array.from(grid.querySelectorAll('.tile'));
+  if (tiles.length === 0) return;
+  
+  // Define tile layout specifications
+  const tileSpecs = {
+    load_pct: { width: 200, height: 200, priority: 1 },
+    battery_pct: { width: 200, height: 200, priority: 2 },
+    volt_line: { width: 180, height: 80, priority: 3 },
+    volt_output: { width: 180, height: 80, priority: 4 },
+    watts_usage: { width: 400, height: 180, priority: 5 }
+  };
+  
+  const padding = 10;
+  const gap = 10;
+  
+  // Sort tiles by priority
+  tiles.sort((a, b) => {
+    const aId = a.dataset.tile;
+    const bId = b.dataset.tile;
+    return (tileSpecs[aId]?.priority || 99) - (tileSpecs[bId]?.priority || 99);
+  });
+  
+  // Layout algorithm: pack tiles efficiently
+  let currentX = padding;
+  let currentY = padding;
+  let rowHeight = 0;
+  let maxRowWidth = 800; // Initial estimate, will be adjusted
+  
+  tiles.forEach(tile => {
+    const tileId = tile.dataset.tile;
+    const spec = tileSpecs[tileId] || { width: 200, height: 150 };
+    
+    // Check if tile fits in current row
+    if (currentX + spec.width > maxRowWidth && currentX > padding) {
+      // Move to next row
+      currentX = padding;
+      currentY += rowHeight + gap;
+      rowHeight = 0;
+    }
+    
+    // Position tile
+    tile.style.left = `${currentX}px`;
+    tile.style.top = `${currentY}px`;
+    tile.style.width = `${spec.width}px`;
+    tile.style.height = `${spec.height}px`;
+    
+    // Update position for next tile
+    currentX += spec.width + gap;
+    rowHeight = Math.max(rowHeight, spec.height);
+  });
+  
+  // Calculate optimal card size
+  const maxX = Math.max(...tiles.map(tile => 
+    parseInt(tile.style.left) + parseInt(tile.style.width)
+  ));
+  const maxY = Math.max(...tiles.map(tile => 
+    parseInt(tile.style.top) + parseInt(tile.style.height)
+  ));
+  
+  // Auto-size the UPS card
+  const card = document.getElementById(`card-${name}`);
+  if (card) {
+    const cardWidth = Math.max(maxX + padding, 400);
+    const cardHeight = Math.max(maxY + padding + 50, 300); // +50 for header
+    
+    card.style.width = `${cardWidth}px`;
+    card.style.height = `${cardHeight}px`;
+    
+    // Update grid size
+    grid.style.width = `${cardWidth - 20}px`;
+    grid.style.height = `${cardHeight - 70}px`;
+    
+    // Save card size
+    persistCardSize(name, cardWidth, cardHeight);
+    debugLog(`Auto-arranged ${tiles.length} tiles for ${name}, card size: ${cardWidth}x${cardHeight}`);
+  }
+}
+
+function persistCardSize(name, width, height) {
+  savedCardSizes[name] = { width, height };
+  saveToStorage(CARD_SIZE_KEY, savedCardSizes);
+}
+
+function restoreCardSize(name) {
+  const card = document.getElementById(`card-${name}`);
+  const grid = card?.querySelector('[data-tile-grid]');
+  if (!card || !grid) return false;
+  
+  const savedSize = savedCardSizes[name];
+  if (savedSize) {
+    card.style.width = `${savedSize.width}px`;
+    card.style.height = `${savedSize.height}px`;
+    grid.style.width = `${savedSize.width - 20}px`;
+    grid.style.height = `${savedSize.height - 70}px`;
+    return true;
+  }
+  return false;
+}
+
+async function saveServerTileConfig(name) {
+  const types = savedTileTypes[name] || {};
+  const order = (savedTileOrder[name] || []);
+  const hiddenArr = Object.entries(savedTileHidden[name] || {})
+    .filter(([_, v]) => v === true).map(([k]) => k);
+  const custom = (savedCustomTiles[name] || []).map(c => ({
+    id: c.id, metric: c.metric, chart: c.chart, source: c.source || 'live'
+  }));
+  const positions = savedTilePos[name] || {};
+  try {
+    await fetch(`/api/ups/${name}/ui_tiles`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ types, order, hidden: hiddenArr, custom, positions })
+    });
+  } catch {}
+}
+
+function ensureUpsCard(name) {
+  let card = document.getElementById(`card-${name}`);
+  if (card) {
+    // Ensure add metric listener attached (server-rendered cards bypass creation path)
+    const addBtn = card.querySelector('[data-add-metric]');
+    if (addBtn && !addBtn.dataset.bound) {
+      addBtn.addEventListener('click', () => openMetricModal(name));
+      addBtn.dataset.bound = '1';
+    }
+    // Ensure reset layout listener attached
+    const resetBtn = card.querySelector('[data-reset-layout]');
+    if (resetBtn && !resetBtn.dataset.bound) {
+      resetBtn.addEventListener('click', () => resetLayout(name));
+      resetBtn.dataset.bound = '1';
+    }
+    // Inject mode toggle if resizing enabled and missing
+    if (uiCfg.allow_resize && !card.querySelector('[data-mode-btn]')) {
+      const header = card.querySelector('.card-header');
+      if (header) {
+        const btn = document.createElement('button');
+        btn.className = 'mode-toggle';
+        btn.setAttribute('data-mode-btn','');
+        btn.title = 'Toggle compact view';
+        btn.textContent = '⇳';
+        header.insertBefore(btn, header.querySelector('.add-metric-btn'));
+        btn.addEventListener('click', () => toggleMode(card));
+      }
+    }
+    // Inject resize handle if needed
+    if (uiCfg.allow_resize && !card.querySelector('.resize-handle')) {
+      const handle = document.createElement('div');
+      handle.className = 'resize-handle';
+      handle.title = 'Drag to resize';
+      handle.textContent = '⇲';
+      card.appendChild(handle);
+      attachResizeBehavior(card, handle);
+    }
+    return card;
+  }
+  const container = document.getElementById('ups-cards');
+  const div = document.createElement('div');
+  div.className = 'card';
+  div.id = `card-${name}`;
+  // Apply saved size if available
+  if (savedSizes[name]) {
+    const { w, h } = savedSizes[name];
+    if (w) div.style.width = w + 'px';
+    if (h) div.style.height = h + 'px';
+  }
+  div.innerHTML = `
+    <div class="card-header">
+      <h2>${name}</h2>
+      <div class="ups-connection" data-field-conn></div>
+      ${uiCfg.allow_resize ? '<button class="mode-toggle" data-mode-btn title="Toggle compact view">⇳</button>' : ''}
+      <button class="add-metric-btn" data-add-metric title="Add metric tile">+</button>
+      <button class="reset-layout-btn" data-reset-layout title="Reset tile layout">⟳</button>
+    </div>
+    <div class="metrics">
+      <div class="highline">
+        <span class="ups-status unknown" data-field="STATUS">-</span>
+        <span class="badge" data-field="RUNTIME_MINUTES" data-badge="runtime">- m</span>
+        <span class="badge" data-field="DERIVED_WATTS" data-badge="watts">- W</span>
+        <span class="badge" data-field="HEADROOM_PCT" data-badge="headroom">- headroom</span>
+      </div>
+      <div class="tile-grid" data-tile-grid></div>
+    </div>
+    <div class="ups-footer" data-ups-footer></div>`;
+  // Add resize handle element (custom) to work consistently across browsers
+  if (uiCfg.allow_resize) {
+    const handle = document.createElement('div');
+    handle.className = 'resize-handle';
+    handle.title = 'Drag to resize';
+    handle.textContent = '⇲';
+    div.appendChild(handle);
+    attachResizeBehavior(div, handle);
+  }
+  container.appendChild(div);
+  
+  // Observe card for resize events to update footer position
+  if (typeof ro !== 'undefined') {
+    ro.observe(div);
+  }
+  
+  // Apply saved mode
+  if (savedModes[name] === 'compact') {
+    div.classList.add('compact');
+  }
+  if (uiCfg.allow_resize) {
+    const btn = div.querySelector('[data-mode-btn]');
+    if (btn) btn.addEventListener('click', () => toggleMode(div));
+  }
+  const addBtn = div.querySelector('[data-add-metric]');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => openMetricModal(name));
+    addBtn.dataset.bound = '1';
+  }
+  const resetBtn = div.querySelector('[data-reset-layout]');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => resetLayout(name));
+    resetBtn.dataset.bound = '1';
+  }
+  // Set default tile types for new UPS (static layout)
+  if (!savedTileTypes[name]) {
+    savedTileTypes[name] = {
+      load_pct: 'gauge',
+      volt_line: 'value', 
+      volt_output: 'value',
+      watts_usage: 'value'
+    };
+    try { localStorage.setItem(TILE_TYPE_KEY, JSON.stringify(savedTileTypes)); } catch{}
+  }
+  // Initialize tiles
+  initTilesFor(name, div.querySelector('[data-tile-grid]'));
+  // Save defaults server-side
+  scheduleServerTileSave(name);
+  return div;
+}
+
+function initTilesFor(name, grid) {
+  if (!grid) return;
+  // Order: user-saved order or default registry order
+  let defs = [...TILE_REGISTRY];
+  const customOrder = savedTileOrder[name];
+  if (Array.isArray(customOrder)) {
+    defs.sort((a,b) => customOrder.indexOf(a.id) - customOrder.indexOf(b.id));
+  }
+  [...defs, ...EXTRA_TILES].forEach((tileDef, idx) => {
+    const tile = document.createElement('div');
+    tile.className = 'tile';
+    tile.dataset.tile = tileDef.id;
+    // Default cascade layout before positions applied
+    tile.style.left = (10 + (idx * 20)) + 'px';
+    tile.style.top = (10 + (idx * 20)) + 'px';
+    tile.innerHTML = `<div class="tile-controls">${renderTileSelect(name, tileDef)}</div><h4>${tileDef.short || tileDef.label}</h4><div class="tile-body"></div>`;
+    if (savedTileHidden[name] && savedTileHidden[name][tileDef.id]) tile.classList.add('hidden');
+    const resizeHandle = document.createElement('div');
+    resizeHandle.className = 'tile-resize';
+    tile.appendChild(resizeHandle);
+    grid.appendChild(tile);
+    attachTileBehavior(name, tile, tileDef);
+  });
+  if (uiCfg.show_energy) {
+    const energyTile = document.createElement('div');
+    energyTile.className = 'tile';
+    energyTile.dataset.tile = 'energy';
+    energyTile.style.left = '12px';
+    energyTile.style.top = '12px';
+    energyTile.innerHTML = `<h4>Energy Today</h4><div class="tile-body"><span class="big-value" data-energy-val>-- kWh</span></div>`;
+    const resizeHandle = document.createElement('div'); resizeHandle.className='tile-resize'; energyTile.appendChild(resizeHandle);
+    grid.appendChild(energyTile);
+  }
+  addTileLayoutControls(name, grid);
+  (savedCustomTiles[name] || []).forEach(ct => { createCustomTile(name, grid, ct); });
+  applyStoredPositions(name, grid);
+}
+
+function renderTileSelect(name, tileDef) {
+  if (tileDef.types.length <= 1) return '';
+  const cur = savedTileTypes[name]?.[tileDef.id] || tileDef.defaultType;
+  return `<select data-tile-select data-name="${name}" data-tile-id="${tileDef.id}">` +
+    tileDef.types.map(t => `<option value="${t}" ${t===cur?'selected':''}>${t}</option>`).join('') + '</select>';
+}
+
+function attachTileBehavior(name, tile, tileDef) {
+  const sel = tile.querySelector('[data-tile-select]');
+  if (sel) {
+    sel.addEventListener('change', e => {
+      const val = e.target.value;
+      savedTileTypes[name] = savedTileTypes[name] || {};
+      savedTileTypes[name][tileDef.id] = val;
+      try { localStorage.setItem(TILE_TYPE_KEY, JSON.stringify(savedTileTypes)); } catch(_) {}
+      scheduleServerTileSave(name);
+      buildTileVisualization(name, tile, tileDef);
+    });
+  }
+  buildTileVisualization(name, tile, tileDef);
+}
+
+function buildTileVisualization(name, tile, tileDef) {
+  const body = tile.querySelector('.tile-body');
+  const type = (savedTileTypes[name] && savedTileTypes[name][tileDef.id]) || tileDef.defaultType;
+  
+  // Destroy existing chart if switching away from chart type
+  const chartId = `tile-${name}-${tileDef.id}`;
+  if (charts[chartId]) {
+    try {
+      charts[chartId].destroy();
+    } catch(e) {
+      debugWarn('Error destroying chart:', e);
+    }
+    delete charts[chartId];
+  }
+  
+  body.innerHTML = '';
+  if (type === 'gauge') {
+    const metric = tileDef.metric;
+    body.innerHTML = `<div class="gauge" data-gauge-metric="${metric}"><svg viewBox="0 0 120 70"><path d="M10 60 A50 50 0 0 1 110 60" class="gauge-bg" /><path d="M10 60 A50 50 0 0 1 110 60" class="gauge-fill" stroke-dasharray="0 157" /><text x="60" y="45" class="gauge-text" text-anchor="middle">--%</text></svg></div>`;
+  } else if (type === 'value') {
+    const metric = tileDef.metric;
+    let unit = '';
+    if (metric === 'LINEV' || metric === 'OUTPUTV') {
+      unit = 'V';
+    } else if (metric === 'DERIVED_WATTS') {
+      unit = 'W';
+    }
+    body.innerHTML = `<div class="big-value-container"><span class="big-value" data-value-metric="${metric}">--</span><span class="value-unit">${unit}</span></div>`;
+  } else {
+    // Chart or big value
+    if (['line','bar'].includes(type)) {
+      const canvasId = `tile-${name}-${tileDef.id}`;
+      body.innerHTML = `<canvas id="${canvasId}" height="90"></canvas>`;
+      // Initialize chart if not exists
+      if (!charts[canvasId]) {
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        
+        // Special configuration for watts chart
+        const isWattsChart = tileDef.metric === 'DERIVED_WATTS';
+        const chartOptions = {
+          animation: false, 
+          responsive: true, 
+          maintainAspectRatio: false,
+          scales: { 
+            y: { 
+              beginAtZero: false, // Don't force zero for auto-scaling
+              title: {
+                display: isWattsChart,
+                text: 'Watts'
+              }
+            },
+            x: {
+              display: true,
+              title: {
+                display: isWattsChart,
+                text: 'Time (6h history)'
+              }
+            }
+          },
+          plugins: {
+            legend: {
+              display: false // Hide legend for cleaner look
+            }
+          }
+        };
+        
+        // Override Y-axis for non-watts charts
+        if (!isWattsChart) {
+          chartOptions.scales.y.beginAtZero = true;
+        }
+        
+        charts[canvasId] = new Chart(ctx, {
+          type: type === 'bar' ? 'bar' : 'line',
+          data: { 
+            labels: [], 
+            datasets: [{ 
+              label: tileDef.short || tileDef.label, 
+              data: [], 
+              borderColor: isWattsChart ? '#ff6b35' : '#4a9eff', 
+              backgroundColor: isWattsChart ? 'rgba(255,107,53,0.15)' : 'rgba(74,158,255,0.25)', 
+              tension: 0.3,
+              fill: isWattsChart,
+              pointRadius: 0, // Hide points for cleaner line
+              pointHoverRadius: 4
+            }]
+          },
+          options: chartOptions
+        });
+        
+        // Load historical data for charts
+        if (tileDef.metric) {
+          debugLog(`Loading historical data for ${tileDef.metric} chart`);
+          loadTileHistoricalData(name, tileDef.metric, canvasId);
+        }
+      } else {
+        // change type if needed
+        if (charts[canvasId].config.type !== (type === 'bar' ? 'bar':'line')) {
+          charts[canvasId].config.type = type === 'bar' ? 'bar' : 'line';
+          charts[canvasId].update();
+        }
+      }
+    }
+  }
+}
+
+function buildCustomTileVisualization(name, tileEl, tileCfg) {
+  const body = tileEl.querySelector('.tile-body');
+  body.innerHTML = '';
+  if (tileCfg.chart === 'gauge') {
+    body.innerHTML = `<div class="gauge" data-custom-gauge><svg viewBox="0 0 120 70"><path d="M10 60 A50 50 0 0 1 110 60" class="gauge-bg" /><path d="M10 60 A50 50 0 0 1 110 60" class="gauge-fill" stroke-dasharray="0 157" /><text x="60" y="45" class="gauge-text" text-anchor="middle">--</text></svg></div>`;
+  } else {
+    const canvasId = `tile-${name}-custom-${tileCfg.id}`;
+    body.innerHTML = `<canvas id="${canvasId}" height="90"></canvas>`;
+    if (!charts[canvasId]) {
+      const ctx = document.getElementById(canvasId).getContext('2d');
+      charts[canvasId] = new Chart(ctx, {
+        type: tileCfg.chart === 'bar' ? 'bar' : 'line',
+        data: { labels: [], datasets: [{ label: tileCfg.metric, data: [], borderColor: '#9f7aea', backgroundColor: 'rgba(159,122,234,0.25)', tension: 0.25 }]},
+        options: { animation:false, responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } } }
+      });
+    }
+  }
+}
+
+function createCustomTile(name, grid, tileCfg) {
+  const tile = document.createElement('div');
+  tile.className = 'tile';
+  tile.dataset.tile = `custom-${tileCfg.id}`;
+  tile.setAttribute('draggable','true');
+  const headerLabel = METRIC_LABELS[tileCfg.metric] ? METRIC_LABELS[tileCfg.metric] : tileCfg.metric;
+  tile.innerHTML = `<div class="tile-controls"><button data-remove-tile title="Remove">✕</button></div><h4>${headerLabel}</h4><div class="tile-body"></div>`;
+  grid.appendChild(tile);
+  buildCustomTileVisualization(name, tile, tileCfg);
+  const removeBtn = tile.querySelector('[data-remove-tile]');
+  removeBtn.addEventListener('click', () => removeCustomTile(name, tileCfg.id, tile));
+  seedHistoricalData(name, tileCfg);
+  scheduleServerTileSave(name);
+  return tile;
+}
+
+function rebuildAllTiles(name) {
+  const card = document.getElementById(`card-${name}`);
+  if (!card) return;
+  const grid = card.querySelector('[data-tile-grid]');
+  if (!grid) return;
+  
+  // Find all existing tiles and rebuild their visualizations
+  grid.querySelectorAll('.tile').forEach(tile => {
+    const tileId = tile.dataset.tile;
+    if (tileId && !tileId.startsWith('custom-')) {
+      const tileDef = TILE_REGISTRY.find(t => t.id === tileId);
+      if (tileDef) {
+        buildTileVisualization(name, tile, tileDef);
+      }
+    }
+  });
+}
+
+function removeCustomTile(name, id, tileEl) {
+  savedCustomTiles[name] = (savedCustomTiles[name]||[]).filter(t => t.id !== id);
+  try { localStorage.setItem(CUSTOM_TILES_KEY, JSON.stringify(savedCustomTiles)); } catch(_) {}
+  if (tileEl) tileEl.remove();
+  persistTileOrder(name, tileEl.parentElement);
+  scheduleServerTileSave(name);
+}
+
+function seedHistoricalData(name, tileCfg) {
+  if (tileCfg.source !== 'history') return;
+  fetch(`/api/ups/${name}/metric/${tileCfg.metric}?limit=120`).then(r=>r.json()).then(points => {
+    const canvasId = `tile-${name}-custom-${tileCfg.id}`;
+    if (tileCfg.chart === 'gauge') return; // gauge only shows live
+    const c = charts[canvasId];
+    if (!c) return;
+    c.data.labels = points.map(p => new Date(p.ts*1000).toLocaleTimeString());
+    c.data.datasets[0].data = points.map(p => p.value);
+    c.update();
+  }).catch(()=>{});
+}
+
+function loadTileHistoricalData(name, metric, canvasId) {
+  // For watts, load 6 hours of data (assuming 5-second intervals = 4320 points)
+  // For other metrics, use smaller dataset
+  const limit = metric === 'DERIVED_WATTS' ? 4320 : 60;
+  
+  fetch(`/api/ups/${name}/metric/${metric}?limit=${limit}`).then(r=>r.json()).then(points => {
+    const c = charts[canvasId];
+    if (!c) return;
+    
+    if (metric === 'DERIVED_WATTS') {
+      // For watts chart, use smart time formatting and auto-scaling
+      configureWattsChart(c, points);
+    } else {
+      // Standard configuration for other charts
+      c.data.labels = points.map(p => new Date(p.ts*1000).toLocaleTimeString());
+      c.data.datasets[0].data = points.map(p => p.value);
+      c.update();
+    }
+  }).catch(err => {
+    debugWarn(`Failed to load historical data for ${metric}:`, err);
+  });
+}
+
+function configureWattsChart(chart, points) {
+  // Smart time label formatting - show every 5th minute
+  const labels = points.map(p => {
+    const date = new Date(p.ts * 1000);
+    const minutes = date.getMinutes();
+    // Show label only for 5-minute intervals (00, 05, 10, 15, 20, etc.)
+    if (minutes % 5 === 0) {
+      return date.toLocaleTimeString('en-US', { 
+        hour: 'numeric', 
+        minute: '2-digit',
+        hour12: false 
+      });
+    }
+    return ''; // Empty label for non-5-minute marks
+  });
+  
+  const values = points.map(p => p.value);
+  
+  // Smart scaling for better visibility
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const dataRange = maxValue - minValue;
+  
+  let yMin, yMax;
+  
+  if (dataRange <= 50) {
+    // For narrow ranges (like 100-200W), use tight ±10W padding for clear visibility
+    yMin = Math.max(0, minValue - 10);
+    yMax = maxValue + 10;
+  } else if (dataRange <= 100) {
+    // For medium ranges, use ±15W padding
+    yMin = Math.max(0, minValue - 15);
+    yMax = maxValue + 15;
+  } else {
+    // For large ranges, use 5% padding
+    const padding = dataRange * 0.05;
+    yMin = Math.max(0, minValue - padding);
+    yMax = maxValue + padding;
+  }
+  
+  // Update chart data and scaling
+  chart.data.labels = labels;
+  chart.data.datasets[0].data = values;
+  
+  // Update Y-axis scaling with smart range
+  chart.options.scales.y.min = Math.round(yMin);
+  chart.options.scales.y.max = Math.round(yMax);
+  
+  // Configure X-axis to show fewer labels
+  chart.options.scales.x = {
+    display: true,
+    ticks: {
+      maxTicksLimit: 12, // Show maximum 12 time labels
+      callback: function(value, index) {
+        const label = this.getLabelForValue(value);
+        return label || undefined; // Only show non-empty labels
+      }
+    }
+  };
+  
+  chart.update();
+}
+
+function openMetricModal(name) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'metric-modal-backdrop';
+  backdrop.innerHTML = `<div class="metric-modal"><h3>Add Metric</h3>
+    <label>Metric</label>
+    <select data-field="metric">
+      ${Object.entries(METRIC_LABELS).map(([k,v]) => `<option value="${k}">${v} (${k})</option>`).join('')}
+    </select>
+    <label>Chart Type</label>
+    <select data-field="chart">
+      <option value="line">Line</option>
+      <option value="bar">Bar</option>
+      <option value="gauge">Gauge</option>
+    </select>
+    <label>Data Source</label>
+    <select data-field="source">
+      <option value="live">Live</option>
+      <option value="history">History + Live</option>
+    </select>
+    <div class="metric-modal-actions">
+      <button type="button" data-cancel>Cancel</button>
+      <button type="button" class="primary" data-add>Add</button>
+    </div>
+  </div>`;
+  document.body.appendChild(backdrop);
+  const cleanup = () => backdrop.remove();
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) cleanup(); });
+  backdrop.querySelector('[data-cancel]').addEventListener('click', cleanup);
+  backdrop.querySelector('[data-add]').addEventListener('click', () => {
+    const metric = backdrop.querySelector('[data-field="metric"]').value;
+    const chart = backdrop.querySelector('[data-field="chart"]').value;
+    const source = backdrop.querySelector('[data-field="source"]').value;
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+    const cfg = { id, metric, chart, source };
+    savedCustomTiles[name] = savedCustomTiles[name] || [];
+    savedCustomTiles[name].push(cfg);
+    try { localStorage.setItem(CUSTOM_TILES_KEY, JSON.stringify(savedCustomTiles)); } catch(_) {}
+    const card = document.getElementById(`card-${name}`);
+    const grid = card.querySelector('[data-tile-grid]');
+    createCustomTile(name, grid, cfg);
+    persistTileOrder(name, grid);
+    cleanup();
+  });
+}
+
+function pushChartPoint(chartId, label, value, maxPoints=60) {
+  const c = charts[chartId];
+  if (!c) return;
+  
+  // Special handling for watts chart
+  if (chartId.includes('watts_usage')) {
+    const now = new Date();
+    const minutes = now.getMinutes();
+    // Only show time label for 5-minute intervals
+    const timeLabel = (minutes % 5 === 0) ? 
+      now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: false }) : '';
+    
+    c.data.labels.push(timeLabel);
+    c.data.datasets[0].data.push(value);
+    
+    // Keep 6 hours of data (assuming 5-second intervals)
+    const maxWattsPoints = 4320; // 6 hours * 60 minutes * 12 (5-second intervals)
+    if (c.data.labels.length > maxWattsPoints) {
+      c.data.labels.shift();
+      c.data.datasets[0].data.shift();
+    }
+    
+    // Smart auto-scale Y-axis for better visibility
+    const values = c.data.datasets[0].data.filter(v => v != null);
+    if (values.length > 0) {
+      const minValue = Math.min(...values);
+      const maxValue = Math.max(...values);
+      const dataRange = maxValue - minValue;
+      
+      let yMin, yMax;
+      
+      if (dataRange <= 50) {
+        // For narrow ranges (like 100-200W), use tight ±10W padding for clear visibility
+        yMin = Math.max(0, minValue - 10);
+        yMax = maxValue + 10;
+      } else if (dataRange <= 100) {
+        // For medium ranges, use ±15W padding
+        yMin = Math.max(0, minValue - 15);
+        yMax = maxValue + 15;
+      } else {
+        // For large ranges, use 5% padding
+        const padding = dataRange * 0.05;
+        yMin = Math.max(0, minValue - padding);
+        yMax = maxValue + padding;
+      }
+      
+      c.options.scales.y.min = Math.round(yMin);
+      c.options.scales.y.max = Math.round(yMax);
+    }
+  } else {
+    // Standard handling for other charts
+    c.data.labels.push(label);
+    c.data.datasets[0].data.push(value);
+    if (c.data.labels.length > maxPoints) {
+      c.data.labels.shift();
+      c.data.datasets[0].data.shift();
+    }
+  }
+  
+  c.update();
+}
+
+function updateValueTile(card, metric, value) {
+  const valueElement = card.querySelector(`[data-value-metric="${metric}"]`);
+  if (valueElement) {
+    valueElement.textContent = value;
+    
+    // Color coding for voltage values based on US electrical specs
+    if (metric === 'LINEV' || metric === 'OUTPUTV') {
+      const numValue = parseFloat(value);
+      // US standard: 120V ±5% (114V-126V is acceptable range)
+      if (numValue >= 114 && numValue <= 126) {
+        valueElement.className = 'big-value voltage-good';
+      } else {
+        valueElement.className = 'big-value voltage-bad';
+      }
+    } else {
+      // Reset class for non-voltage metrics
+      valueElement.className = 'big-value';
+    }
+  }
+}
+
+function toggleMode(card) {
+  const name = card.id.replace('card-','');
+  if (card.classList.toggle('compact')) {
+    savedModes[name] = 'compact';
+  } else {
+    delete savedModes[name];
+  }
+  try { localStorage.setItem(CARD_MODE_KEY, JSON.stringify(savedModes)); } catch(_) {}
+  resizeChartsInCard(card);
+}
+
+function trimChart(chart) {
+  if (chart.data.labels.length > 60) {
+    chart.data.labels.shift();
+    chart.data.datasets[0].data.shift();
+  }
+}
+
+function updateStaleStatuses() {
+  const now = Date.now() / 1000;
+  Object.entries(lastUpdateTs).forEach(([name, ts]) => {
+    if (now - ts > UPS_STALE_SECONDS) {
+      const card = document.getElementById(`card-${name}`);
+      if (card) {
+        const statusElement = card.querySelector('.ups-status');
+        if (statusElement) {
+          statusElement.textContent = 'STALE';
+          statusElement.className = 'ups-status unknown';
+        }
+      }
+    }
+  });
+}
+setInterval(updateStaleStatuses, 10000);
+
+evtSource.onmessage = (e) => {
+  let payload;
+  try {
+    payload = JSON.parse(e.data);
+    debugLog('SSE data received:', Object.keys(payload.snapshots || {}));
+  } catch (err) {
+    debugError('Bad SSE payload', err);
+    return;
+  }
+
+  const snapshots = payload.snapshots || {};
+  const upsMeta = payload.upsMeta || [];
+
+  // Reconcile cards: add new, remove stale
+  const desiredNames = new Set(upsMeta.map(m => m.name));
+  const currentCards = Array.from(document.querySelectorAll('#ups-cards .card'));
+  currentCards.forEach(card => {
+    const name = card.id.replace('card-','');
+    if (!desiredNames.has(name)) {
+      // remove charts references
+      delete charts[`chart-${name}`];
+      delete charts[`chart-batt-${name}`];
+      card.remove();
+      delete lastUpdateTs[name];
+    }
+  });
+  upsMeta.forEach(meta => {
+    const card = ensureUpsCard(meta.name);
+    // update connection host:port display
+    const conn = card.querySelector('.ups-connection');
+    if (conn) conn.textContent = `${meta.host}:${meta.port}`;
+    // Update event footer asynchronously (lightweight)
+    updateEventFooter(meta.name);
+  });
+
+  Object.entries(snapshots).forEach(([name, snap]) => {
+    const card = ensureUpsCard(name);
+    lastUpdateTs[name] = Date.now() / 1000;
+    
+    // Update connection info with model and serial if available
+    const conn = card.querySelector('.ups-connection');
+    if (conn) {
+      const meta = upsMeta.find(m => m.name === name);
+      let connText = meta ? `${meta.host}:${meta.port}` : '';
+      
+      // Add model and serial info
+      const model = snap['MODEL'] || '';
+      const serial = snap['SERIALNO'] || '';
+      
+      if (model || serial) {
+        const modelPart = model ? ` • ${model}` : '';
+        const serialPart = serial ? ` • S/N: ${serial}` : '';
+        connText += modelPart + serialPart;
+      }
+      
+      conn.textContent = connText;
+    }
+
+    card.querySelectorAll('.val').forEach(span => {
+      const field = span.getAttribute('data-field');
+      span.textContent = snap[field] || '-';
+    });
+
+    const statusElement = card.querySelector('.ups-status');
+    const status = snap['STATUS'] || 'UNKNOWN';
+    if (statusElement) {
+      statusElement.textContent = status;
+      statusElement.className = 'ups-status ' + getStatusClass(status);
+    }
+
+    const load = parseFloat(snap['LOADPCT']) || 0;
+    const batt = parseFloat(snap['BCHARGE']) || 0;
+    const linev = parseFloat(snap['LINEV']) || 0;
+    // Use OUTPUTV if available, fallback to LINEV for UPS models that don't report output voltage
+    const outv = parseFloat(snap['OUTPUTV']) || parseFloat(snap['LINEV']) || 0;
+    const watts = parseFloat(snap['DERIVED_WATTS']) || 0;
+    const ts = new Date();
+    const tsLabel = ts.toLocaleTimeString();
+    // Update tile charts if present (only for gauge/chart types)
+    pushChartPoint(`tile-${name}-load_pct`, tsLabel, load);
+    pushChartPoint(`tile-${name}-battery_pct`, tsLabel, batt);
+    pushChartPoint(`tile-${name}-watts_usage`, tsLabel, watts);
+    
+    // Update value displays
+    updateValueTile(card, 'LINEV', linev.toFixed(1));
+    updateValueTile(card, 'OUTPUTV', outv.toFixed(1));
+    
+    // Update output voltage tile label if using fallback
+    if (!snap['OUTPUTV'] && snap['LINEV']) {
+      const outputTile = card.querySelector('.tile[data-tile="volt_output"]');
+      if (outputTile) {
+        const labelElement = outputTile.querySelector('.tile-label');
+        if (labelElement && labelElement.textContent === 'Output Voltage') {
+          labelElement.textContent = 'Output V (Line)';
+        }
+      }
+    }
+    updateValueTile(card, 'LOADPCT', load.toFixed(1));
+    updateValueTile(card, 'BCHARGE', batt.toFixed(1));
+    updateValueTile(card, 'DERIVED_WATTS', watts.toFixed(0));
+    // Update custom tiles (live)
+    (savedCustomTiles[name]||[]).forEach(ct => {
+      const metricValRaw = snap[ct.metric];
+      if (metricValRaw == null) return;
+      let metricVal;
+      try { metricVal = parseFloat(String(metricValRaw).split(/\s+/)[0]); } catch(_) { return; }
+      if (ct.chart === 'gauge') {
+        const gauge = document.querySelector(`#card-${name} [data-tile-grid] .tile[data-tile="custom-${ct.id}"] [data-custom-gauge]`);
+        if (gauge) {
+          const fill = gauge.querySelector('.gauge-fill');
+          const text = gauge.querySelector('.gauge-text');
+          const pct = Math.max(0, Math.min(100, metricVal));
+          const total = 157;
+          const filled = (pct/100)*total;
+          if (fill) fill.setAttribute('stroke-dasharray', `${filled} ${total-filled}`);
+          if (text) text.textContent = pct.toFixed(0);
+          gauge.classList.remove('good','low','critical');
+          if (pct < 15) gauge.classList.add('critical'); else if (pct < 35) gauge.classList.add('low'); else gauge.classList.add('good');
+        }
+      } else {
+        const chartId = `tile-${name}-custom-${ct.id}`;
+        pushChartPoint(chartId, new Date().toLocaleTimeString(), metricVal, 120);
+      }
+    });
+
+    // Gauge updates (battery/load tiles)
+    card.querySelectorAll('[data-gauge-metric]').forEach(gauge => {
+      const metric = gauge.getAttribute('data-gauge-metric');
+      let rawVal = snap[metric];
+      if (rawVal == null) return;
+      let valNum;
+      try { valNum = parseFloat(String(rawVal).split(/\s+/)[0]); } catch(_) { return; }
+      if (isNaN(valNum)) return;
+      const pct = Math.max(0, Math.min(100, valNum));
+      const total = 157;
+      const filled = (pct / 100) * total;
+      const fill = gauge.querySelector('.gauge-fill');
+      const text = gauge.querySelector('.gauge-text');
+      if (fill) fill.setAttribute('stroke-dasharray', `${filled} ${total - filled}`);
+      if (text) text.textContent = pct.toFixed(0) + '%';
+      gauge.classList.remove('good','low','critical');
+      if (pct < 15) gauge.classList.add('critical');
+      else if (pct < 35) gauge.classList.add('low');
+      else gauge.classList.add('good');
+    });
+
+    // Highline badges text update
+    const runtimeBadge = card.querySelector('[data-badge="runtime"]');
+    if (runtimeBadge) runtimeBadge.textContent = (snap['RUNTIME_MINUTES'] ? snap['RUNTIME_MINUTES'] + ' m' : '- m');
+    const wattsBadge = card.querySelector('[data-badge="watts"]');
+    if (wattsBadge) wattsBadge.textContent = (snap['DERIVED_WATTS'] ? snap['DERIVED_WATTS'] + ' W' : '- W');
+    const headroomBadge = card.querySelector('[data-badge="headroom"]');
+    if (headroomBadge) headroomBadge.textContent = (snap['HEADROOM_PCT'] ? snap['HEADROOM_PCT'] + '% free' : '- headroom');
+    // Dynamic badge colors if enabled
+    if (uiCfg.color_badges) {
+      const rt = parseFloat(snap['RUNTIME_MINUTES']) || null;
+      const loadPct = parseFloat(snap['LOADPCT']) || null;
+      const headroom = parseFloat(snap['HEADROOM_PCT']) || null;
+      if (runtimeBadge && rt !== null) {
+        runtimeBadge.style.background = rt < 10 ? '#742a2a' : rt < 20 ? '#613515' : '#2c3e50';
+      }
+      if (headroomBadge && headroom !== null) {
+        headroomBadge.style.background = headroom < 10 ? '#6b2d2d' : headroom < 20 ? '#5a3d16' : '#3b3f2a';
+      }
+      if (wattsBadge && loadPct !== null) {
+        wattsBadge.style.background = loadPct > 90 ? '#6b2d2d' : loadPct > 75 ? '#6b4e19' : '#1f4f61';
+      }
+    }
+  });
+  // Fetch events & energy asynchronously (tiles)
+  upsMeta.forEach(meta => {
+    if (uiCfg.show_events === false) return;
+    fetch(`/api/ups/${meta.name}/events`).then(r => r.json()).then(events => {
+      const card = document.getElementById(`card-${meta.name}`);
+      if (!card) return;
+      const list = card.querySelector('[data-events]');
+      if (!list) return;
+      list.innerHTML = '';
+      events.slice(0,10).forEach(ev => {
+        const li = document.createElement('li');
+        if (ev.ts) {
+          const dt = new Date(ev.ts * 1000).toLocaleTimeString();
+          li.textContent = `[${dt}] ${ev.type}: ${ev.detail}`;
+        } else if (ev.raw) {
+          li.textContent = ev.raw;
+        } else {
+          li.textContent = JSON.stringify(ev);
+        }
+        list.appendChild(li);
+      });
+    }).catch(()=>{});
+    if (uiCfg.show_energy) {
+      fetch(`/api/ups/${meta.name}/energy`).then(r => r.json()).then(data => {
+        if (!data || data.kwh_today == null) return;
+        const card = document.getElementById(`card-${meta.name}`);
+        if (!card) return;
+        const energyVal = card.querySelector('[data-energy-val]');
+        if (energyVal) energyVal.textContent = data.kwh_today.toFixed(2) + ' kWh';
+      }).catch(()=>{});
+    }
+  });
+};
+
+
+
+async function updateEventFooter(name) {
+  try {
+    const resp = await fetch(`/api/ups/${name}/events`);
+    if (!resp.ok) return;
+    const events = await resp.json();
+    if (!Array.isArray(events) || events.length === 0) return;
+    const latest = events[0];
+    const card = document.getElementById(`card-${name}`);
+    if (!card) return;
+    const footer = card.querySelector('[data-ups-footer]');
+    if (!footer) return;
+    
+    let text;
+    if (latest.ts) {
+      const dt = new Date(latest.ts * 1000).toLocaleTimeString();
+      text = `[${dt}] ${latest.type || ''} ${latest.detail || latest.msg || latest.raw || ''}`.trim();
+    } else {
+      text = latest.detail || latest.msg || latest.raw || '';
+    }
+    footer.innerHTML = `<span class="event-marquee">${text}</span>`;
+  } catch {}
+}
+
+function addTileLayoutControls(name, grid) {
+  grid.style.position = 'relative';
+  let activeTile = null; let dragOffsetX = 0, dragOffsetY = 0;
+  function pointerDown(e) {
+    const tile = e.target.closest('.tile');
+    if (!tile) return;
+    if (e.target.classList.contains('tile-resize')) return; // handled elsewhere
+    const additive = e.metaKey || e.ctrlKey || e.shiftKey;
+    toggleTileSelection(tile, additive);
+    activeTile = tile;
+    const rect = tile.getBoundingClientRect();
+    dragOffsetX = e.clientX - rect.left;
+    dragOffsetY = e.clientY - rect.top;
+    tile.classList.add('dragging');
+    window.addEventListener('pointermove', pointerMove);
+    window.addEventListener('pointerup', pointerUp, { once: true });
+  }
+  function pointerMove(e) {
+    if (!activeTile) return;
+    const gridRect = grid.getBoundingClientRect();
+    let targetX = e.clientX - gridRect.left - dragOffsetX;
+    let targetY = e.clientY - gridRect.top - dragOffsetY;
+    if (targetX < 0) targetX = 0; if (targetY < 0) targetY = 0;
+    // Group move if multiple selected
+    if (selectedTiles.size > 1) {
+      const baseX = parseInt(activeTile.style.left||'0',10) || 0;
+      const baseY = parseInt(activeTile.style.top||'0',10) || 0;
+      const dx = snap(targetX) - baseX;
+      const dy = snap(targetY) - baseY;
+      selectedTiles.forEach(t => {
+        const cx = parseInt(t.style.left||'0',10) || 0;
+        const cy = parseInt(t.style.top||'0',10) || 0;
+        t.style.left = snap(cx + dx) + 'px';
+        t.style.top = snap(cy + dy) + 'px';
+      });
+    } else {
+      activeTile.style.left = snap(targetX) + 'px';
+      activeTile.style.top = snap(targetY) + 'px';
+    }
+  }
+  function pointerUp() {
+    if (activeTile) activeTile.classList.remove('dragging');
+    persistTilePositions(name, grid);
+    activeTile = null;
+    window.removeEventListener('pointermove', pointerMove);
+    window.removeEventListener('pointerup', pointerUp);
+    window.removeEventListener('pointercancel', pointerUp);
+    window.removeEventListener('blur', pointerUp);
+  }
+  grid.addEventListener('pointerdown', pointerDown);
+  window.addEventListener('pointercancel', pointerUp);
+  window.addEventListener('blur', pointerUp);
+  // Resize handles
+  grid.addEventListener('pointerdown', e => {
+    if (!e.target.classList.contains('tile-resize')) return;
+    const tile = e.target.closest('.tile'); if (!tile) return;
+    e.preventDefault();
+    let startX = e.clientX, startY = e.clientY;
+    const startW = tile.offsetWidth, startH = tile.offsetHeight;
+    function onMove(ev) {
+      let nw = startW + (ev.clientX - startX); let nh = startH + (ev.clientY - startY);
+      nw = Math.max(140, nw); nh = Math.max(110, nh);
+      tile.style.width = snap(nw) + 'px'; tile.style.height = snap(nh) + 'px';
+    }
+    function onUp() { persistTilePositions(name, grid); window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); }
+    window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp, { once:true });
+  });
+  // Context menu hide
+  grid.addEventListener('contextmenu', e => {
+    const tile = e.target.closest('.tile'); if (!tile) return;
+    e.preventDefault();
+    const id = tile.dataset.tile; savedTileHidden[name] = savedTileHidden[name] || {};
+    const hidden = tile.classList.toggle('hidden');
+    savedTileHidden[name][id] = hidden;
+    try { localStorage.setItem(TILE_HIDDEN_KEY, JSON.stringify(savedTileHidden)); } catch{}
+    scheduleServerTileSave(name);
+  });
+}
+
+function persistTileOrder(name, grid) {
+  const order = Array.from(grid.querySelectorAll('.tile')).map(t => t.dataset.tile).filter(Boolean);
+  savedTileOrder[name] = order;
+  try { localStorage.setItem(TILE_ORDER_KEY, JSON.stringify(savedTileOrder)); } catch(_) {}
+  scheduleServerTileSave(name);
+}
+
+function persistTilePositions(name, grid) {
+  const positions = {};
+  let maxX = 0, maxY = 0;
+  
+  grid.querySelectorAll('.tile').forEach(tile => {
+    const id = tile.dataset.tile;
+    if (id) {
+      const left = parseInt(tile.style.left || '0', 10);
+      const top = parseInt(tile.style.top || '0', 10);
+      const width = parseInt(tile.style.width || '0', 10) || tile.offsetWidth;
+      const height = parseInt(tile.style.height || '0', 10) || tile.offsetHeight;
+      
+      positions[id] = { left, top, width, height };
+      
+      // Calculate required card size
+      maxX = Math.max(maxX, left + width);
+      maxY = Math.max(maxY, top + height);
+    }
+  });
+  
+  savedTilePos[name] = positions;
+  try { localStorage.setItem(TILE_POS_KEY, JSON.stringify(savedTilePos)); } catch(_) {}
+  
+  // Auto-adjust card size based on tile positions
+  if (maxX > 0 && maxY > 0) {
+    const cardWidth = Math.max(maxX + 20, 400); // 20px padding
+    const cardHeight = Math.max(maxY + 70, 300); // 70px for header + padding
+    persistCardSize(name, cardWidth, cardHeight);
+    
+    // Apply the size immediately
+    const card = document.getElementById(`card-${name}`);
+    if (card) {
+      card.style.width = `${cardWidth}px`;
+      card.style.height = `${cardHeight}px`;
+      grid.style.width = `${cardWidth - 20}px`;
+      grid.style.height = `${cardHeight - 70}px`;
+    }
+  }
+  
+  scheduleServerTileSave(name);
+}
+
+function applyStoredPositions(name, grid) {
+  const positions = savedTilePos[name] || {};
+  let hasStoredPositions = Object.keys(positions).length > 0;
+  
+  // First, try to restore the card size
+  const cardRestored = restoreCardSize(name);
+  
+  if (hasStoredPositions) {
+    // Apply stored tile positions
+    grid.querySelectorAll('.tile').forEach(tile => {
+      const id = tile.dataset.tile;
+      const pos = positions[id];
+      if (pos) {
+        tile.style.left = pos.left + 'px';
+        tile.style.top = pos.top + 'px';
+        if (pos.width) tile.style.width = pos.width + 'px';
+        if (pos.height) tile.style.height = pos.height + 'px';
+      }
+    });
+  } else {
+    // Apply auto-arrangement if no positions stored
+    autoArrangeTiles(name, grid);
+    // Persist these positions for future use
+    persistTilePositions(name, grid);
+  }
+}
+
+function getDragAfterElement(container, x, y) {
+  const tiles = [...container.querySelectorAll('.tile:not(.dragging)')];
+  return tiles.reduce((closest, child) => {
+    const rect = child.getBoundingClientRect();
+    const offset = y - rect.top - rect.height / 2;
+    if (offset < 0 && offset > closest.offset) {
+      return { offset, element: child };
+    } else {
+      return closest;
+    }
+  }, { offset: Number.NEGATIVE_INFINITY }).element;
+}
+
+function getStatusClass(status) {
+  const upperStatus = status.toUpperCase();
+  if (upperStatus.includes('ONLINE')) return 'online';
+  if (upperStatus.includes('ONBATT')) return 'onbattery';
+  if (upperStatus.includes('BATTERY')) return 'onbattery';
+  return 'unknown';
+}
+
+// Resize logic
+function attachResizeBehavior(card, handle) {
+  let startX, startY, startW, startH, resizing = false;
+  const GRID = 40; // snap grid size
+  const MIN_W = 320;
+  const MIN_H = 260;
+  const MAX_W = 1000;
+  const MAX_H = 900;
+
+  function onPointerDown(e) {
+    e.preventDefault();
+    startX = e.clientX; startY = e.clientY;
+    const rect = card.getBoundingClientRect();
+    startW = rect.width; startH = rect.height;
+    resizing = true;
+    card.classList.add('resizing');
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp, { once: true });
+  }
+  function onPointerMove(e) {
+    if (!resizing) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    let newW = Math.max(MIN_W, Math.min(MAX_W, startW + dx));
+    let newH = Math.max(MIN_H, Math.min(MAX_H, startH + dy));
+    // Snap to grid
+    newW = Math.round(newW / GRID) * GRID;
+    newH = Math.round(newH / GRID) * GRID;
+    card.style.width = newW + 'px';
+    card.style.height = newH + 'px';
+    resizeChartsInCard(card);
+  }
+  function onPointerUp() {
+    resizing = false;
+    card.classList.remove('resizing');
+    // Persist size
+    const rect = card.getBoundingClientRect();
+    const name = card.id.replace('card-','');
+    const width = Math.round(rect.width);
+    const height = Math.round(rect.height);
+    persistCardSize(name, width, height);
+    
+    // Also update grid size
+    const grid = card.querySelector('[data-tile-grid]');
+    if (grid) {
+      grid.style.width = `${width - 20}px`;
+      grid.style.height = `${height - 70}px`;
+    }
+    window.removeEventListener('pointermove', onPointerMove);
+  }
+  handle.addEventListener('pointerdown', onPointerDown);
+}
+
+function resizeChartsInCard(card) {
+  // Adjust canvas width to card inner width with padding consideration
+  const canvases = card.querySelectorAll('canvas.chart');
+  canvases.forEach(cv => {
+    const parentW = card.clientWidth - 40; // approximate padding + handle space
+    if (parentW > 0) {
+      cv.style.width = parentW + 'px';
+    }
+  });
+  // Trigger Chart.js resize
+  Object.values(charts).forEach(ch => {
+    try { ch.resize(); } catch(_) {}
+  });
+}
+
+// Watch cards for size changes (if user uses native resize or CSS changes)
+const ro = new ResizeObserver(entries => {
+  entries.forEach(entry => {
+    if (entry.target.classList.contains('card')) {
+      resizeChartsInCard(entry.target);
+      // Footer is positioned via CSS automatically, but ensure it's visible
+      const footer = entry.target.querySelector('.ups-footer');
+      if (footer) {
+        footer.style.display = 'block';
+      }
+    }
+  });
+});
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.card').forEach(c => ro.observe(c));
+  
+  // Attach reset button listeners to existing cards
+  document.querySelectorAll('[data-reset-layout]').forEach(resetBtn => {
+    if (!resetBtn.dataset.bound) {
+      const card = resetBtn.closest('.card');
+      if (card) {
+        const name = card.id.replace('card-','');
+        resetBtn.addEventListener('click', () => resetLayout(name));
+        resetBtn.dataset.bound = '1';
+      }
+    }
+  });
+  
+  // For each existing card, load server tile config (if any) and apply
+  const existing = Array.from(document.querySelectorAll('#ups-cards .card'));
+  existing.forEach(async card => {
+    const name = card.id.replace('card-','');
+    
+    // Force correct tile types for cleaner interface (override any cached values)
+    // Destroy any existing charts for this UPS first
+    Object.keys(charts).forEach(chartId => {
+      if (chartId.includes(`tile-${name}-`)) {
+        try {
+          charts[chartId].destroy();
+        } catch(e) {}
+        delete charts[chartId];
+      }
+    });
+    
+    savedTileTypes[name] = {
+      load_pct: 'gauge',  
+      volt_line: 'value',
+      volt_output: 'value',
+      watts_usage: 'value'
+    };
+    try { localStorage.setItem(TILE_TYPE_KEY, JSON.stringify(savedTileTypes)); } catch{}
+    
+    const cfg = await loadServerTileConfig(name);
+    if (cfg) {
+      savedTileTypes[name] = cfg.types || savedTileTypes[name] || {};
+      savedTileOrder[name] = cfg.order || savedTileOrder[name] || [];
+      const hiddenSet = {}; (cfg.hidden||[]).forEach(h => hiddenSet[h]=true);
+      savedTileHidden[name] = hiddenSet;
+      savedCustomTiles[name] = cfg.custom || [];
+      savedTilePos[name] = cfg.positions || savedTilePos[name] || {};
+      try { localStorage.setItem(TILE_TYPE_KEY, JSON.stringify(savedTileTypes)); } catch{}
+      try { localStorage.setItem(TILE_ORDER_KEY, JSON.stringify(savedTileOrder)); } catch{}
+      try { localStorage.setItem(TILE_HIDDEN_KEY, JSON.stringify(savedTileHidden)); } catch{}
+      try { localStorage.setItem(CUSTOM_TILES_KEY, JSON.stringify(savedCustomTiles)); } catch{}
+      try { localStorage.setItem(TILE_POS_KEY, JSON.stringify(savedTilePos)); } catch{}
+      // Rebuild tiles using loaded config
+      const grid = card.querySelector('[data-tile-grid]');
+      grid.innerHTML = '';
+      initTilesFor(name, grid);
+      // Force rebuild tiles with correct types
+      rebuildAllTiles(name);
+      // If no stored positions existed, perform an auto layout
+      if (!cfg.positions || Object.keys(cfg.positions).length === 0) {
+        resetLayout(name);
+      }
+    } else {
+      // No server config: apply default static layout
+      savedTileTypes[name] = {
+        load_pct: 'gauge',
+        volt_line: 'value',
+        volt_output: 'value',
+        watts_usage: 'value'
+      };
+      try { localStorage.setItem(TILE_TYPE_KEY, JSON.stringify(savedTileTypes)); } catch{}
+      const grid = card.querySelector('[data-tile-grid]');
+      grid.innerHTML='';
+      initTilesFor(name, grid);
+      // Force rebuild tiles with correct types
+      rebuildAllTiles(name);
+      // Apply static layout directly (same as in resetLayout)
+      const loadTile = grid.querySelector('.tile[data-tile="load_pct"]');
+      const lineTile = grid.querySelector('.tile[data-tile="volt_line"]');
+      const outTile = grid.querySelector('.tile[data-tile="volt_output"]');
+      const wattsTile = grid.querySelector('.tile[data-tile="watts_usage"]');
+      if (loadTile) { loadTile.style.left='10px'; loadTile.style.top='10px'; loadTile.style.width='200px'; loadTile.style.height='160px'; }
+      if (lineTile) { lineTile.style.left='230px'; lineTile.style.top='10px'; lineTile.style.width='180px'; lineTile.style.height='70px'; }
+      if (outTile) { outTile.style.left='230px'; outTile.style.top='100px'; outTile.style.width='180px'; outTile.style.height='70px'; }
+      if (wattsTile) { wattsTile.style.left='10px'; wattsTile.style.top='190px'; wattsTile.style.width='400px'; wattsTile.style.height='200px'; }
+      setTimeout(()=>{ Object.values(charts).forEach(ch=>{ try{ ch.resize(); }catch{} }); }, 50);
+      persistTilePositions(name, grid);
+      scheduleServerTileSave(name);
+    }
+  });
+});
