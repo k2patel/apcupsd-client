@@ -4,16 +4,16 @@ services:
     build: .
     container_name: apcups-dashboard
     ports:
-      - "8000:8000"
+      - "10280:8000"
     environment:
       - REDIS_URL=redis://redis:6379/0
     depends_on:
       - redis
+    restart: always
   redis:
     image: redis:7-alpine
     container_name: redis
-    ports:
-      - "6379:6379"
+    restart: always
     # Enable persistence so UPS configuration stored in Redis survives restarts.
     # Using both RDB snapshots (default schedule) and AOF for durability.
     command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
