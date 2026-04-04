@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{% block title %}UPS Dashboard{% endblock %}</title>
   <meta name="csrf-token" content="{{ request.cookies.get('csrf_token', '') }}" />
-  <link rel="stylesheet" href="/static/css/base.css" />
-  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/static/css/base.css?v=3" />
+  <link rel="stylesheet" href="/static/css/style.css?v=3" />
   {% block head_extra %}{% endblock %}
 </head>
 <body>
@@ -29,7 +29,7 @@
   <main class="site-main">
     {% block content %}{% endblock %}
   </main>
-  <script src="/static/js/app.js"></script>
+  <script src="/static/js/app.js?v=3"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>
