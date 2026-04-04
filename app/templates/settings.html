@@ -7,38 +7,114 @@
 <div class="main-content">
   <section class="settings-section">
     <h2>UI / Feature Flags</h2>
-    <form id="ui-form">
-      <label><input type="checkbox" name="show_events"> Show events tile</label>
-      <label><input type="checkbox" name="show_energy"> Show energy</label>
-      <label><input type="checkbox" name="color_badges"> Colorize badges</label>
-      <label><input type="checkbox" name="enable_transfer_burst_alert"> Transfer-burst alerts</label>
-      <label><input type="checkbox" name="enable_voltage_deviation_alert"> Voltage-deviation alerts</label>
-      <label>Energy cost per kWh ($): <input type="number" step="0.001" min="0" name="energy_cost_per_kwh"></label>
-      <button type="submit" class="btn btn-primary">Save UI Settings</button>
+    <form id="ui-form" class="settings-form">
+      <div class="toggle-grid">
+        <div class="toggle-row">
+          <div class="toggle-label">
+            <span class="toggle-title">Show events tile</span>
+            <span class="toggle-help">Display the recent-events marquee on each UPS card</span>
+          </div>
+          <label class="switch"><input type="checkbox" name="show_events"><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-label">
+            <span class="toggle-title">Show energy</span>
+            <span class="toggle-help">Show today's kWh and estimated cost on cards</span>
+          </div>
+          <label class="switch"><input type="checkbox" name="show_energy"><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-label">
+            <span class="toggle-title">Colorize badges</span>
+            <span class="toggle-help">Color-code runtime/watts/headroom pills</span>
+          </div>
+          <label class="switch"><input type="checkbox" name="color_badges"><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-label">
+            <span class="toggle-title">Transfer-burst alerts</span>
+            <span class="toggle-help">Alert when ≥3 ONBATT events occur within an hour</span>
+          </div>
+          <label class="switch"><input type="checkbox" name="enable_transfer_burst_alert"><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-label">
+            <span class="toggle-title">Voltage-deviation alerts</span>
+            <span class="toggle-help">Alert when line voltage deviates &gt;8% from nominal</span>
+          </div>
+          <label class="switch"><input type="checkbox" name="enable_voltage_deviation_alert"><span class="slider"></span></label>
+        </div>
+      </div>
+      <div class="field-row">
+        <label class="field-label" for="energy-cost">Energy cost per kWh ($)</label>
+        <input class="field-input" id="energy-cost" type="number" step="0.001" min="0" name="energy_cost_per_kwh">
+      </div>
+      <div class="form-bar">
+        <button type="submit" class="btn btn-primary">Save UI Settings</button>
+      </div>
     </form>
   </section>
 
   <section class="settings-section">
     <h2>SMTP / Email Alerts</h2>
-    <form id="smtp-form">
-      <label>Host <input type="text" name="host" required></label>
-      <label>Port <input type="number" name="port" min="1" max="65535" required></label>
-      <label>Username <input type="text" name="username"></label>
-      <label><input type="checkbox" name="use_tls"> Use STARTTLS</label>
-      <label><input type="checkbox" name="use_ssl"> Use SSL</label>
-      <label>From <input type="email" name="from_addr"></label>
-      <label>To (comma-separated) <input type="text" name="to_addrs"></label>
-      <label>Subject Prefix <input type="text" name="subject_prefix" value="[UPS]"></label>
-      <label>Silent hours start (0-23, optional) <input type="number" name="silent_hours_start" min="0" max="23"></label>
-      <label>Silent hours end (0-23, optional) <input type="number" name="silent_hours_end" min="0" max="23"></label>
-      <label>Daily summary hour (0-23, optional) <input type="number" name="daily_summary_hour" min="0" max="23"></label>
+    <form id="smtp-form" class="settings-form">
+      <div class="field-grid">
+        <div class="field-row">
+          <label class="field-label" for="smtp-host">Host *</label>
+          <input class="field-input" id="smtp-host" type="text" name="host" required>
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="smtp-port">Port *</label>
+          <input class="field-input" id="smtp-port" type="number" name="port" min="1" max="65535" required>
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="smtp-user">Username</label>
+          <input class="field-input" id="smtp-user" type="text" name="username">
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="smtp-from">From address</label>
+          <input class="field-input" id="smtp-from" type="email" name="from_addr">
+        </div>
+        <div class="field-row wide">
+          <label class="field-label" for="smtp-to">To (comma-separated)</label>
+          <input class="field-input" id="smtp-to" type="text" name="to_addrs">
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="smtp-subj">Subject prefix</label>
+          <input class="field-input" id="smtp-subj" type="text" name="subject_prefix" value="[UPS]">
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="smtp-sh-start">Silent hours start</label>
+          <input class="field-input" id="smtp-sh-start" type="number" name="silent_hours_start" min="0" max="23" placeholder="0-23">
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="smtp-sh-end">Silent hours end</label>
+          <input class="field-input" id="smtp-sh-end" type="number" name="silent_hours_end" min="0" max="23" placeholder="0-23">
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="smtp-daily">Daily summary hour</label>
+          <input class="field-input" id="smtp-daily" type="number" name="daily_summary_hour" min="0" max="23" placeholder="0-23">
+        </div>
+      </div>
+      <div class="toggle-grid compact">
+        <div class="toggle-row">
+          <div class="toggle-label"><span class="toggle-title">Use STARTTLS</span></div>
+          <label class="switch"><input type="checkbox" name="use_tls"><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-label"><span class="toggle-title">Use SSL</span></div>
+          <label class="switch"><input type="checkbox" name="use_ssl"><span class="slider"></span></label>
+        </div>
+      </div>
       <p class="muted">Password is read from the <code>SMTP_PASSWORD</code> environment variable and never stored in Redis.</p>
-      <button type="submit" class="btn btn-primary">Save SMTP</button>
-      <button type="button" id="test-smtp-btn" class="btn btn-secondary">Send Test Email</button>
+      <div class="form-bar">
+        <button type="submit" class="btn btn-primary">Save SMTP</button>
+        <button type="button" id="test-smtp-btn" class="btn btn-secondary">Send Test Email</button>
+      </div>
     </form>
   </section>
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="/static/js/settings.js?v=3"></script>
+<script src="/static/js/settings.js?v=4"></script>
 {% endblock %}
