@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}UPS Dashboard{% endblock %}</title>
+  <meta name="csrf-token" content="{{ request.cookies.get('csrf_token', '') }}" />
+  <link rel="stylesheet" href="/static/css/base.css" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+  {% block head_extra %}{% endblock %}
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand"><a href="/">⚡ APC UPS Dashboard</a></div>
+    <nav class="main-nav">
+      <a href="/" class="{% if active_nav == 'dashboard' %}active{% endif %}">Dashboard</a>
+      <a href="/events" class="{% if active_nav == 'events' %}active{% endif %}">Events</a>
+      <a href="/alerts" class="{% if active_nav == 'alerts' %}active{% endif %}">Alerts</a>
+      <a href="/config" class="{% if active_nav == 'config' %}active{% endif %}">UPS Config</a>
+      <a href="/settings" class="{% if active_nav == 'settings' %}active{% endif %}">Settings</a>
+    </nav>
+    <div class="user-menu">
+      {% if current_user %}
+        <span class="username">{{ current_user }}</span>
+        <button type="button" id="logout-btn" class="btn-logout">Logout</button>
+      {% endif %}
+    </div>
+  </header>
+  <main class="site-main">
+    {% block content %}{% endblock %}
+  </main>
+  <script src="/static/js/app.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

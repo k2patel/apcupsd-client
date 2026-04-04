@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="font-family: -apple-system, Segoe UI, Arial, sans-serif;">
+<h2>UPS Daily Summary</h2>
+<p>Sent at: {{ sent_at }}</p>
+<table cellpadding="6" cellspacing="0" border="1" style="border-collapse: collapse;">
+  <tr><th>UPS</th><th>Status</th><th>Load %</th><th>Battery %</th><th>kWh today</th><th>Alerts (24h)</th></tr>
+  {% for row in summary.ups_rows %}
+  <tr>
+    <td>{{ row.name }}</td>
+    <td>{{ row.status }}</td>
+    <td>{{ row.loadpct }}</td>
+    <td>{{ row.bcharge }}</td>
+    <td>{{ row.kwh }}</td>
+    <td>{{ row.alerts_count }}</td>
+  </tr>
+  {% endfor %}
+</table>
+</body>
+</html>

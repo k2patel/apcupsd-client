@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Alerts — UPS{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Alerts</h1>
+  <div class="filters">
+    <select id="filter-severity"><option value="">All Severities</option><option value="CRITICAL">CRITICAL</option><option value="WARNING">WARNING</option><option value="INFO">INFO</option></select>
+    <select id="filter-ups"><option value="">All UPS</option></select>
+    <select id="filter-view"><option value="active">Active</option><option value="history">History (30d)</option></select>
+    <button id="refresh-btn" class="btn btn-secondary">Refresh</button>
+  </div>
+</div>
+<div class="main-content">
+  <table class="data-table">
+    <thead><tr><th>Time</th><th>Severity</th><th>UPS</th><th>Code</th><th>Message</th><th>Acked</th><th></th></tr></thead>
+    <tbody id="alerts-tbody"><tr><td colspan="7">Loading...</td></tr></tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/alerts.js"></script>
+{% endblock %}

@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Login — UPS Dashboard</title>
+  <link rel="stylesheet" href="/static/css/base.css" />
+  <link rel="stylesheet" href="/static/css/login.css" />
+</head>
+<body class="auth-body">
+  <div class="auth-card">
+    <h1>UPS Dashboard</h1>
+    <form id="login-form">
+      <div class="form-field">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" required autocomplete="username" />
+      </div>
+      <div class="form-field">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required autocomplete="current-password" />
+      </div>
+      <button type="submit" class="btn-primary btn-block">Sign in</button>
+      <div id="login-error" class="login-error" hidden></div>
+    </form>
+  </div>
+  <script>
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errBox = document.getElementById('login-error');
+      errBox.hidden = true;
+      const resp = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: document.getElementById('username').value,
+          password: document.getElementById('password').value,
+        }),
+      });
+      if (resp.ok) {
+        window.location.href = '/';
+      } else {
+        const err = await resp.json().catch(() => ({}));
+        errBox.textContent = err.detail || 'Login failed';
+        errBox.hidden = false;
+      }
+    });
+  </script>
+</body>
+</html>

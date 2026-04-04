@@ -1,0 +1,11 @@
+.auth-body { background: #2c3e50; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+.auth-card { background: #fff; border-radius: 8px; padding: 32px; width: 360px; box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+.auth-card.wide { width: 440px; }
+.auth-card h1 { margin: 0 0 20px; text-align: center; font-size: 22px; }
+.form-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.form-field label { font-size: 13px; color: #555; }
+.form-field input { padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+.btn-primary { background: #3498db; color: #fff; border: 0; padding: 10px 16px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+.btn-primary:hover { background: #2980b9; }
+.btn-block { width: 100%; }
+.login-error { margin-top: 12px; padding: 8px 12px; background: #fee; color: #c0392b; border-radius: 4px; font-size: 13px; }

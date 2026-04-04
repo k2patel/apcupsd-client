@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Settings — UPS{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Settings</h1>
+</div>
+<div class="main-content">
+  <section class="settings-section">
+    <h2>UI / Feature Flags</h2>
+    <form id="ui-form">
+      <label><input type="checkbox" name="show_events"> Show events tile</label>
+      <label><input type="checkbox" name="show_energy"> Show energy</label>
+      <label><input type="checkbox" name="color_badges"> Colorize badges</label>
+      <label><input type="checkbox" name="enable_transfer_burst_alert"> Transfer-burst alerts</label>
+      <label><input type="checkbox" name="enable_voltage_deviation_alert"> Voltage-deviation alerts</label>
+      <label>Energy cost per kWh ($): <input type="number" step="0.001" min="0" name="energy_cost_per_kwh"></label>
+      <button type="submit" class="btn btn-primary">Save UI Settings</button>
+    </form>
+  </section>
+
+  <section class="settings-section">
+    <h2>SMTP / Email Alerts</h2>
+    <form id="smtp-form">
+      <label>Host <input type="text" name="host" required></label>
+      <label>Port <input type="number" name="port" min="1" max="65535" required></label>
+      <label>Username <input type="text" name="username"></label>
+      <label><input type="checkbox" name="use_tls"> Use STARTTLS</label>
+      <label><input type="checkbox" name="use_ssl"> Use SSL</label>
+      <label>From <input type="email" name="from_addr"></label>
+      <label>To (comma-separated) <input type="text" name="to_addrs"></label>
+      <label>Subject Prefix <input type="text" name="subject_prefix" value="[UPS]"></label>
+      <label>Silent hours start (0-23, optional) <input type="number" name="silent_hours_start" min="0" max="23"></label>
+      <label>Silent hours end (0-23, optional) <input type="number" name="silent_hours_end" min="0" max="23"></label>
+      <label>Daily summary hour (0-23, optional) <input type="number" name="daily_summary_hour" min="0" max="23"></label>
+      <p class="muted">Password is read from the <code>SMTP_PASSWORD</code> environment variable and never stored in Redis.</p>
+      <button type="submit" class="btn btn-primary">Save SMTP</button>
+      <button type="button" id="test-smtp-btn" class="btn btn-secondary">Send Test Email</button>
+    </form>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/settings.js"></script>
+{% endblock %}
