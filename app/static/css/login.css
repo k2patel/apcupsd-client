@@ -1,0 +1,59 @@
+/* ============================================================
+   Login / Setup page. Inherits tokens from base.css.
+   ============================================================ */
+
+.auth-body {
+  background:
+    radial-gradient(ellipse 800px 600px at 50% -200px, rgba(96,165,250,.08), transparent),
+    var(--bg);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.auth-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 36px 32px;
+  width: 380px;
+  box-shadow: var(--shadow-lg);
+}
+.auth-card.wide { width: 460px; }
+
+.auth-card h1 {
+  margin: 0 0 6px;
+  text-align: center;
+  font-size: 22px;
+  color: var(--text);
+}
+.auth-card .muted { text-align: center; margin-bottom: 20px; }
+
+.form-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.form-field label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+.form-field input {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-family: inherit;
+}
+.form-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.15);
+}
+
+.login-error {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Events — UPS{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Event Log</h1>
+  <div class="filters">
+    <select id="filter-ups"><option value="">All UPS</option></select>
+    <select id="filter-kind"><option value="">All Events</option><option value="STATUS">STATUS</option><option value="XFER">XFER</option></select>
+    <button id="refresh-btn" class="btn btn-secondary">Refresh</button>
+  </div>
+</div>
+<div class="main-content">
+  <table class="data-table">
+    <thead><tr><th>Time</th><th>UPS</th><th>Type</th><th>Detail</th></tr></thead>
+    <tbody id="events-tbody"><tr><td colspan="4">Loading...</td></tr></tbody>
+  </table>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/events.js?v=3"></script>
+{% endblock %}

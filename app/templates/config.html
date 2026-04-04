@@ -1,112 +1,88 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>UPS Configuration</title>
-  <link rel="stylesheet" href="/static/css/style.css" />
-  <link rel="stylesheet" href="/static/css/config.css" />
-</head>
-<body>
-  <div class="header">
-    <h1>UPS Configuration</h1>
-    <nav>
-      <a href="/">← Back to Dashboard</a>
-      <button id="add-ups-btn" class="btn btn-primary">Add UPS</button>
-    </nav>
-  </div>
+{% extends "base.html" %}
+{% block title %}UPS Configuration{% endblock %}
+{% block head_extra %}
+<link rel="stylesheet" href="/static/css/config.css?v=3" />
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>UPS Configuration</h1>
+  <button id="add-ups-btn" class="btn btn-primary">Add UPS</button>
+</div>
 
-  <div class="main-content">
-    <div id="ups-list" class="ups-list">
-      <!-- UPS configurations will be loaded here -->
+<div class="main-content">
+  <div id="ups-list" class="ups-list"></div>
+</div>
+
+<div id="ups-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="modal-title">Add UPS</h2>
+      <span class="close">&times;</span>
     </div>
-  </div>
-
-  <!-- Add/Edit UPS Modal -->
-  <div id="ups-modal" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2 id="modal-title">Add UPS</h2>
-        <span class="close">&times;</span>
+    <form id="ups-form">
+      <div class="form-group">
+        <label for="ups-name">Name *</label>
+        <input type="text" id="ups-name" name="name" required pattern="[A-Za-z0-9_.\- ]{1,32}" maxlength="32">
+        <small>1-32 chars (letters, digits, space, dot, underscore, dash)</small>
       </div>
-      <form id="ups-form">
-        <div class="form-group">
-          <label for="ups-name">Name *</label>
-          <input type="text" id="ups-name" name="name" required>
-          <small>Friendly name for the UPS</small>
-        </div>
-        
-        <div class="form-group">
-          <label for="ups-host">Host/IP *</label>
-          <input type="text" id="ups-host" name="host" required>
-          <small>IP address or hostname of the apcupsd server</small>
-        </div>
-        
-        <div class="form-group">
-          <label for="ups-port">Port</label>
-          <input type="number" id="ups-port" name="port" value="3551">
-          <small>apcupsd NIS port (default: 3551)</small>
-        </div>
-        
-        <div class="form-group">
-          <label for="ups-interval">Polling Interval (seconds)</label>
-          <input type="number" id="ups-interval" name="interval_seconds" value="30" min="1">
-          <small>How often to poll the UPS for data</small>
-        </div>
-        
-        <h3>Alert Thresholds</h3>
-        
-        <div class="form-group">
-          <label for="ups-loadpct">High Load Alert (%)</label>
-          <input type="number" id="ups-loadpct" name="alert_loadpct_high" min="0" max="100" step="0.1">
-          <small>Trigger alert when load percentage reaches this value</small>
-        </div>
-        
-        <div class="form-group">
-          <label for="ups-bcharge">Low Battery Alert (%)</label>
-          <input type="number" id="ups-bcharge" name="alert_bcharge_low" min="0" max="100" step="0.1">
-          <small>Trigger alert when battery charge drops to this value</small>
-        </div>
-        
-        <div class="form-group">
-          <label>
-            <input type="checkbox" id="ups-onbattery" name="alert_on_battery">
-            Alert when on battery power
-          </label>
-        </div>
-        
-        <div class="form-group">
-          <label for="ups-runtime">Low Runtime Alert (minutes)</label>
-          <input type="number" id="ups-runtime" name="alert_runtime_low_minutes" min="0" step="0.1">
-          <small>Trigger alert when remaining runtime drops to this value</small>
-        </div>
-        
-        <div class="form-actions">
-          <button type="button" id="test-connection-btn" class="btn btn-secondary">Test Connection</button>
-          <button type="submit" class="btn btn-primary">Save</button>
-          <button type="button" id="cancel-btn" class="btn btn-secondary">Cancel</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Confirmation Dialog -->
-  <div id="confirm-modal" class="modal">
-    <div class="modal-content small">
-      <div class="modal-header">
-        <h2>Confirm Action</h2>
-        <span class="close">&times;</span>
+      <div class="form-group">
+        <label for="ups-host">Host/IP *</label>
+        <input type="text" id="ups-host" name="host" required>
+        <small>IP or hostname of the apcupsd server</small>
       </div>
-      <p id="confirm-message"></p>
+      <div class="form-group">
+        <label for="ups-port">Port</label>
+        <input type="number" id="ups-port" name="port" value="3551" min="1" max="65535">
+      </div>
+      <div class="form-group">
+        <label for="ups-interval">Polling Interval (seconds)</label>
+        <input type="number" id="ups-interval" name="interval_seconds" value="30" min="5" max="3600">
+      </div>
+      <h3>Alert Thresholds</h3>
+      <div class="form-group">
+        <label for="ups-loadpct">High Load Alert (%)</label>
+        <input type="number" id="ups-loadpct" name="alert_loadpct_high" min="0" max="100" step="0.1">
+      </div>
+      <div class="form-group">
+        <label for="ups-bcharge">Low Battery Alert (%)</label>
+        <input type="number" id="ups-bcharge" name="alert_bcharge_low" min="0" max="100" step="0.1">
+      </div>
+      <div class="form-group">
+        <label><input type="checkbox" id="ups-onbattery" name="alert_on_battery"> Alert when on battery power</label>
+      </div>
+      <div class="form-group">
+        <label for="ups-runtime">Low Runtime Alert (minutes)</label>
+        <input type="number" id="ups-runtime" name="alert_runtime_low_minutes" min="0" step="0.1">
+      </div>
+      <div class="form-group">
+        <label for="ups-itemp">High Temperature Alert (°C)</label>
+        <input type="number" id="ups-itemp" name="alert_itemp_high" min="0" max="120" step="0.5">
+      </div>
       <div class="form-actions">
-        <button id="confirm-yes" class="btn btn-danger">Yes</button>
-        <button id="confirm-no" class="btn btn-secondary">No</button>
+        <button type="button" id="test-connection-btn" class="btn btn-secondary">Test Connection</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+        <button type="button" id="cancel-btn" class="btn btn-secondary">Cancel</button>
       </div>
+    </form>
+  </div>
+</div>
+
+<div id="confirm-modal" class="modal">
+  <div class="modal-content small">
+    <div class="modal-header">
+      <h2>Confirm Action</h2>
+      <span class="close">&times;</span>
+    </div>
+    <p id="confirm-message"></p>
+    <div class="form-actions">
+      <button id="confirm-yes" class="btn btn-danger">Yes</button>
+      <button id="confirm-no" class="btn btn-secondary">No</button>
     </div>
   </div>
+</div>
 
-  <!-- Toast notifications -->
-  <div id="toast-container"></div>
-
-  <script src="/static/js/config.js"></script>
-</body>
-</html>
+<div id="toast-container"></div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/config.js?v=3"></script>
+{% endblock %}

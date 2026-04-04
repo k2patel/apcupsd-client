@@ -1,174 +1,113 @@
-// Configuration management JavaScript
+// UPS Configuration page (uses apiFetch for CSRF)
+
+function el(tag, attrs, ...children) {
+  const e = document.createElement(tag);
+  if (attrs) Object.entries(attrs).forEach(([k, v]) => {
+    if (k === 'class') e.className = v;
+    else if (k === 'dataset') Object.assign(e.dataset, v);
+    else if (k.startsWith('on') && typeof v === 'function') e.addEventListener(k.slice(2), v);
+    else if (v !== null && v !== undefined) e.setAttribute(k, v);
+  });
+  children.forEach(c => {
+    if (c == null) return;
+    e.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+  });
+  return e;
+}
 
 class ConfigManager {
-  constructor() {
-    this.init();
-  }
+  constructor() { this.confirmCallback = null; this.init(); }
 
-  init() {
-    this.bindEvents();
-    this.loadUPSList();
-  }
+  init() { this.bindEvents(); this.loadUPSList(); }
 
   bindEvents() {
-    // Add UPS button
-    document.getElementById('add-ups-btn').addEventListener('click', () => {
-      this.showUPSModal();
-    });
-
-    // Modal close buttons
+    document.getElementById('add-ups-btn').addEventListener('click', () => this.showUPSModal());
     document.querySelectorAll('.close').forEach(close => {
-      close.addEventListener('click', (e) => {
-        this.closeModal(e.target.closest('.modal'));
-      });
+      close.addEventListener('click', (e) => this.closeModal(e.target.closest('.modal')));
     });
-
-    // UPS form submission
     document.getElementById('ups-form').addEventListener('submit', (e) => {
-      e.preventDefault();
-      this.saveUPS();
+      e.preventDefault(); this.saveUPS();
     });
-
-    // Test connection button
-    document.getElementById('test-connection-btn').addEventListener('click', () => {
-      this.testConnection();
-    });
-
-    // Cancel button
+    document.getElementById('test-connection-btn').addEventListener('click', () => this.testConnection());
     document.getElementById('cancel-btn').addEventListener('click', () => {
       this.closeModal(document.getElementById('ups-modal'));
     });
-
-    // Confirmation modal buttons
     document.getElementById('confirm-yes').addEventListener('click', () => {
-      if (this.confirmCallback) {
-        this.confirmCallback();
-      }
+      if (this.confirmCallback) this.confirmCallback();
       this.closeModal(document.getElementById('confirm-modal'));
     });
-
     document.getElementById('confirm-no').addEventListener('click', () => {
       this.closeModal(document.getElementById('confirm-modal'));
     });
-
-    // Click outside modal to close
     window.addEventListener('click', (e) => {
-      if (e.target.classList.contains('modal')) {
-        this.closeModal(e.target);
-      }
+      if (e.target.classList.contains('modal')) this.closeModal(e.target);
     });
   }
 
   async loadUPSList() {
     try {
-      const response = await fetch('/api/config/ups');
-      const upsList = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(upsList.detail || 'Failed to load UPS configurations');
-      }
-
-      this.renderUPSList(upsList);
-    } catch (error) {
-      this.showToast('Error loading UPS configurations: ' + error.message, 'error');
-    }
+      const resp = await window.apiFetch('/api/config/ups');
+      const list = await resp.json();
+      if (!resp.ok) throw new Error(list.detail || 'Failed to load');
+      this.renderUPSList(list);
+    } catch (err) { this.showToast('Error: ' + err.message, 'error'); }
   }
 
-  renderUPSList(upsList) {
+  renderUPSList(list) {
     const container = document.getElementById('ups-list');
-    
-    if (upsList.length === 0) {
-      container.innerHTML = `
-        <div class="empty-state">
-          <h3>No UPS Configured</h3>
-          <p>Get started by clicking "Add UPS" above to configure your first UPS monitoring.</p>
-        </div>
-      `;
+    container.textContent = '';
+    if (list.length === 0) {
+      const empty = el('div', { class: 'empty-state' },
+        el('h3', null, 'No UPS Configured'),
+        el('p', null, 'Click "Add UPS" to configure your first UPS.'));
+      container.appendChild(empty);
       return;
     }
-
-    container.innerHTML = upsList.map(ups => this.renderUPSItem(ups)).join('');
-    
-    // Bind action buttons
-    container.querySelectorAll('.edit-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const upsName = e.target.dataset.upsName;
-        this.editUPS(upsName);
-      });
-    });
-
-    container.querySelectorAll('.delete-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const upsName = e.target.dataset.upsName;
-        this.confirmDelete(upsName);
-      });
-    });
-
-    container.querySelectorAll('.test-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const upsName = e.target.dataset.upsName;
-        this.testUPSConnection(upsName);
-      });
-    });
+    list.forEach(ups => container.appendChild(this.renderUPSItem(ups)));
   }
 
   renderUPSItem(ups) {
-    const alertsEnabled = [
-      ups.alert_loadpct_high && `Load: ${ups.alert_loadpct_high}%`,
-      ups.alert_bcharge_low && `Battery: ${ups.alert_bcharge_low}%`,
-      ups.alert_on_battery && 'On Battery',
-      ups.alert_runtime_low_minutes && `Runtime: ${ups.alert_runtime_low_minutes}min`
-    ].filter(Boolean);
-
-    return `
-      <div class="ups-item">
-        <div class="ups-item-header">
-          <div class="ups-item-title">${ups.name}</div>
-          <div class="ups-item-actions">
-            <button class="btn btn-secondary test-btn" data-ups-name="${ups.name}">Test</button>
-            <button class="btn btn-primary edit-btn" data-ups-name="${ups.name}">Edit</button>
-            <button class="btn btn-danger delete-btn" data-ups-name="${ups.name}">Delete</button>
-          </div>
-        </div>
-        <div class="ups-item-details">
-          <div class="ups-detail">
-            <div class="ups-detail-label">Host</div>
-            <div class="ups-detail-value">${ups.host}:${ups.port}</div>
-          </div>
-          <div class="ups-detail">
-            <div class="ups-detail-label">Polling Interval</div>
-            <div class="ups-detail-value">${ups.interval_seconds}s</div>
-          </div>
-          <div class="ups-detail">
-            <div class="ups-detail-label">Alerts</div>
-            <div class="ups-detail-value">${alertsEnabled.length > 0 ? alertsEnabled.join(', ') : 'None'}</div>
-          </div>
-        </div>
-      </div>
-    `;
+    const alerts = [];
+    if (ups.alert_loadpct_high) alerts.push('Load: ' + ups.alert_loadpct_high + '%');
+    if (ups.alert_bcharge_low) alerts.push('Battery: ' + ups.alert_bcharge_low + '%');
+    if (ups.alert_on_battery) alerts.push('On Battery');
+    if (ups.alert_runtime_low_minutes) alerts.push('Runtime: ' + ups.alert_runtime_low_minutes + 'min');
+    if (ups.alert_itemp_high) alerts.push('Temp: ' + ups.alert_itemp_high + '°C');
+    const testBtn = el('button', { class: 'btn btn-secondary', onclick: () => this.testUPSConnection(ups.name) }, 'Test');
+    const editBtn = el('button', { class: 'btn btn-primary', onclick: () => this.editUPS(ups.name) }, 'Edit');
+    const delBtn = el('button', { class: 'btn btn-danger', onclick: () => this.confirmDelete(ups.name) }, 'Delete');
+    const item = el('div', { class: 'ups-item' },
+      el('div', { class: 'ups-item-header' },
+        el('div', { class: 'ups-item-title' }, ups.name),
+        el('div', { class: 'ups-item-actions' }, testBtn, editBtn, delBtn)),
+      el('div', { class: 'ups-item-details' },
+        el('div', { class: 'ups-detail' },
+          el('div', { class: 'ups-detail-label' }, 'Host'),
+          el('div', { class: 'ups-detail-value' }, ups.host + ':' + ups.port)),
+        el('div', { class: 'ups-detail' },
+          el('div', { class: 'ups-detail-label' }, 'Polling Interval'),
+          el('div', { class: 'ups-detail-value' }, ups.interval_seconds + 's')),
+        el('div', { class: 'ups-detail' },
+          el('div', { class: 'ups-detail-label' }, 'Alerts'),
+          el('div', { class: 'ups-detail-value' }, alerts.length ? alerts.join(', ') : 'None'))));
+    return item;
   }
 
   showUPSModal(ups = null) {
     const modal = document.getElementById('ups-modal');
     const title = document.getElementById('modal-title');
     const form = document.getElementById('ups-form');
-    
-    // Reset form
     form.reset();
-    
     if (ups) {
-      // Edit mode
       title.textContent = 'Edit UPS';
       this.populateForm(ups);
       form.dataset.mode = 'edit';
       form.dataset.upsName = ups.name;
     } else {
-      // Add mode
       title.textContent = 'Add UPS';
       form.dataset.mode = 'add';
       delete form.dataset.upsName;
     }
-    
     modal.style.display = 'block';
   }
 
@@ -179,222 +118,107 @@ class ConfigManager {
     document.getElementById('ups-interval').value = ups.interval_seconds || 30;
     document.getElementById('ups-loadpct').value = ups.alert_loadpct_high || '';
     document.getElementById('ups-bcharge').value = ups.alert_bcharge_low || '';
-    document.getElementById('ups-onbattery').checked = ups.alert_on_battery || false;
+    document.getElementById('ups-onbattery').checked = !!ups.alert_on_battery;
     document.getElementById('ups-runtime').value = ups.alert_runtime_low_minutes || '';
+    const itemp = document.getElementById('ups-itemp');
+    if (itemp) itemp.value = ups.alert_itemp_high || '';
   }
 
-  closeModal(modal) {
-    modal.style.display = 'none';
-  }
+  closeModal(modal) { modal.style.display = 'none'; }
 
   async saveUPS() {
     const form = document.getElementById('ups-form');
-    const formData = new FormData(form);
+    const fd = new FormData(form);
     const mode = form.dataset.mode;
-    const upsName = form.dataset.upsName;
-    
+    const name = form.dataset.upsName;
     const data = {
-      name: formData.get('name'),
-      host: formData.get('host'),
-      port: parseInt(formData.get('port')) || 3551,
-      interval_seconds: parseInt(formData.get('interval_seconds')) || 30,
-      alert_on_battery: formData.has('alert_on_battery')
+      name: fd.get('name'),
+      host: fd.get('host'),
+      port: parseInt(fd.get('port')) || 3551,
+      interval_seconds: parseInt(fd.get('interval_seconds')) || 30,
+      alert_on_battery: fd.has('alert_on_battery'),
     };
-
-    // Add optional alert thresholds
-    const loadpct = formData.get('alert_loadpct_high');
-    if (loadpct) data.alert_loadpct_high = parseFloat(loadpct);
-    
-    const bcharge = formData.get('alert_bcharge_low');
-    if (bcharge) data.alert_bcharge_low = parseFloat(bcharge);
-    
-    const runtime = formData.get('alert_runtime_low_minutes');
-    if (runtime) data.alert_runtime_low_minutes = parseFloat(runtime);
-
+    const num = (k) => { const v = fd.get(k); if (v) data[k] = parseFloat(v); };
+    num('alert_loadpct_high'); num('alert_bcharge_low');
+    num('alert_runtime_low_minutes'); num('alert_itemp_high');
     try {
-      let response;
-      if (mode === 'edit') {
-        response = await fetch(`/api/config/ups/${upsName}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
-        });
-      } else {
-        response = await fetch('/api/config/ups', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
-        });
-      }
-
-      const result = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(result.detail || 'Failed to save UPS configuration');
-      }
-
+      const url = mode === 'edit' ? '/api/config/ups/' + name : '/api/config/ups';
+      const method = mode === 'edit' ? 'PUT' : 'POST';
+      const resp = await window.apiFetch(url, { method, body: JSON.stringify(data) });
+      const result = await resp.json();
+      if (!resp.ok) throw new Error(result.detail || 'Save failed');
       this.showToast(result.message, 'success');
       this.closeModal(document.getElementById('ups-modal'));
       this.loadUPSList();
-    } catch (error) {
-      this.showToast('Error saving UPS: ' + error.message, 'error');
-    }
+    } catch (err) { this.showToast('Error: ' + err.message, 'error'); }
   }
 
-  async editUPS(upsName) {
+  async editUPS(name) {
     try {
-      const response = await fetch(`/api/config/ups/${upsName}`);
-      const ups = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(ups.detail || 'Failed to load UPS configuration');
-      }
-
+      const resp = await window.apiFetch('/api/config/ups/' + name);
+      const ups = await resp.json();
+      if (!resp.ok) throw new Error(ups.detail || 'Load failed');
       this.showUPSModal(ups);
-    } catch (error) {
-      this.showToast('Error loading UPS configuration: ' + error.message, 'error');
-    }
+    } catch (err) { this.showToast('Error: ' + err.message, 'error'); }
   }
 
-  confirmDelete(upsName) {
-    const modal = document.getElementById('confirm-modal');
-    const message = document.getElementById('confirm-message');
-    
-    message.textContent = `Are you sure you want to delete the UPS configuration "${upsName}"? This action cannot be undone.`;
-    
-    this.confirmCallback = () => this.deleteUPS(upsName);
-    modal.style.display = 'block';
+  confirmDelete(name) {
+    document.getElementById('confirm-message').textContent =
+      'Delete UPS "' + name + '"? This cannot be undone.';
+    this.confirmCallback = () => this.deleteUPS(name);
+    document.getElementById('confirm-modal').style.display = 'block';
   }
 
-  async deleteUPS(upsName) {
+  async deleteUPS(name) {
     try {
-      const response = await fetch(`/api/config/ups/${upsName}`, {
-        method: 'DELETE'
-      });
-
-      const result = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(result.detail || 'Failed to delete UPS configuration');
-      }
-
+      const resp = await window.apiFetch('/api/config/ups/' + name, { method: 'DELETE' });
+      const result = await resp.json();
+      if (!resp.ok) throw new Error(result.detail || 'Delete failed');
       this.showToast(result.message, 'success');
       this.loadUPSList();
-    } catch (error) {
-      this.showToast('Error deleting UPS: ' + error.message, 'error');
-    }
+    } catch (err) { this.showToast('Error: ' + err.message, 'error'); }
   }
 
   async testConnection() {
     const form = document.getElementById('ups-form');
-    const formData = new FormData(form);
-    
+    const fd = new FormData(form);
     const data = {
-      name: formData.get('name') || 'test',
-      host: formData.get('host'),
-      port: parseInt(formData.get('port')) || 3551,
+      name: fd.get('name') || 'test',
+      host: fd.get('host'),
+      port: parseInt(fd.get('port')) || 3551,
       interval_seconds: 30,
-      alert_on_battery: false
+      alert_on_battery: false,
     };
-
-    if (!data.host) {
-      this.showToast('Host is required for connection test', 'error');
-      return;
-    }
-
-    const testBtn = document.getElementById('test-connection-btn');
-    const originalText = testBtn.textContent;
-    testBtn.textContent = 'Testing...';
-    testBtn.disabled = true;
-
+    if (!data.host) { this.showToast('Host required', 'error'); return; }
+    const btn = document.getElementById('test-connection-btn');
+    const orig = btn.textContent;
+    btn.textContent = 'Testing...'; btn.disabled = true;
     try {
-      const response = await fetch('/api/config/ups/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
+      const resp = await window.apiFetch('/api/config/ups/test', {
+        method: 'POST', body: JSON.stringify(data),
       });
-
-      const result = await response.json();
-      let msg;
-      if (result.success) {
-        msg = 'Connection successful';
-        if (result.data && result.data.STATUS) {
-          msg += ` (STATUS=${result.data.STATUS})`;
-        }
-        this.showToast(msg, 'success');
-      } else {
-        if (result.connectivity && !result.connectivity.ok) {
-          msg = 'TCP connectivity failed: ' + (result.connectivity.error || 'unknown error');
-        } else if (result.protocol && !result.protocol.ok) {
-          msg = 'Protocol error after TCP success: ' + (result.protocol.error || 'unknown error');
-        } else {
-          msg = result.message || 'Connection failed';
-        }
-        this.showToast(msg, 'error');
-      }
-    } catch (error) {
-      this.showToast('Connection test failed: ' + error.message, 'error');
-    } finally {
-      testBtn.textContent = originalText;
-      testBtn.disabled = false;
-    }
+      const r = await resp.json();
+      this.showToast(r.message || (r.success ? 'OK' : 'Failed'),
+        r.success ? 'success' : 'error');
+    } catch (err) { this.showToast('Test failed: ' + err.message, 'error'); }
+    finally { btn.textContent = orig; btn.disabled = false; }
   }
 
-  async testUPSConnection(upsName) {
-    const testBtn = document.querySelector(`[data-ups-name="${upsName}"].test-btn`);
-    const originalText = testBtn.textContent;
-    testBtn.textContent = 'Testing...';
-    testBtn.disabled = true;
-
+  async testUPSConnection(name) {
     try {
-      const response = await fetch(`/api/config/ups/${upsName}/test`, {
-        method: 'POST'
-      });
-
-      const result = await response.json();
-      let msg;
-      if (result.success) {
-        msg = `Connection to ${upsName} successful`;
-        if (result.data && result.data.STATUS) {
-          msg += ` (STATUS=${result.data.STATUS})`;
-        }
-        this.showToast(msg, 'success');
-      } else {
-        if (result.connectivity && !result.connectivity.ok) {
-          msg = `TCP connectivity failed: ${result.connectivity.error}`;
-        } else if (result.protocol && !result.protocol.ok) {
-          msg = `Protocol error: ${result.protocol.error}`;
-        } else {
-          msg = result.message || 'Connection failed';
-        }
-        this.showToast(`Connection to ${upsName} failed: ${msg}`, 'error');
-      }
-    } catch (error) {
-      this.showToast(`Connection test failed: ${error.message}`, 'error');
-    } finally {
-      testBtn.textContent = originalText;
-      testBtn.disabled = false;
-    }
+      const resp = await window.apiFetch('/api/config/ups/' + name + '/test', { method: 'POST' });
+      const r = await resp.json();
+      this.showToast(r.message || (r.success ? 'OK' : 'Failed'),
+        r.success ? 'success' : 'error');
+    } catch (err) { this.showToast('Test failed: ' + err.message, 'error'); }
   }
 
   showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.textContent = message;
-    
+    const toast = el('div', { class: 'toast ' + type }, message);
     container.appendChild(toast);
-    
-    // Auto-remove after 5 seconds
-    setTimeout(() => {
-      if (toast.parentNode) {
-        toast.parentNode.removeChild(toast);
-      }
-    }, 5000);
+    setTimeout(() => { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 5000);
   }
 }
 
-// Initialize when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-  new ConfigManager();
-});
+document.addEventListener('DOMContentLoaded', () => { new ConfigManager(); });
