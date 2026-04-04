@@ -38,6 +38,25 @@ window.upsDebug = {
 
 const evtSource = new EventSource('/api/stream');
 const charts = {};
+
+// -------- Fleet overview poller --------
+async function refreshFleetOverview() {
+  try {
+    const r = await fetch('/api/ups/fleet/overview', { credentials: 'same-origin' });
+    if (!r.ok) return;
+    const d = await r.json();
+    const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    setText('fleet-total', d.total ?? 0);
+    setText('fleet-online', d.counts?.online ?? 0);
+    setText('fleet-onbatt', d.counts?.on_battery ?? 0);
+    setText('fleet-offline', d.counts?.offline ?? 0);
+    setText('fleet-watts', d.total_watts != null ? Math.round(d.total_watts) : '—');
+    const minRT = d.min_timeleft_minutes;
+    setText('fleet-min-runtime', minRT != null ? `${Math.round(minRT)} m` : '—');
+  } catch (e) { /* silent */ }
+}
+refreshFleetOverview();
+setInterval(refreshFleetOverview, 10000);
 // Tile registry and state
 const TILE_REGISTRY = [
   { id: 'load_pct', metric: 'LOADPCT', label: 'UPS Load %', short: 'Load', types: ['gauge','line','bar'], defaultType: 'gauge' },

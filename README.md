@@ -63,6 +63,8 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 python -c "from passlib.hash import argon2; print(argon2.hash('mysecret'))"
 ```
 
+> **Heads-up — `$` escaping in `.env`:** argon2 hashes look like `$argon2id$v=19$m=...$<salt>$<hash>`. Docker Compose treats `$word` as variable substitution in `.env`, so pasting a raw hash produces warnings (`The "argon2id" variable is not set…`) and the container receives a mangled, unverifiable hash — you won't be able to log in. Quoting does **not** help. Either double every `$` (`$$argon2id$$v=19$$m=...`), or skip this variable entirely and use the `/setup` wizard (recommended).
+
 ## apcupsd server requirements
 
 Your remote APC UPS hosts must run `apcupsd` with the Network Information Server (NIS) enabled:

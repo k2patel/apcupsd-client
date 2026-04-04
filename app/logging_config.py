@@ -46,6 +46,14 @@ def configure_logging() -> None:
     # Calm down noisy loggers
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
+    # Filter out "Invalid HTTP request received" noise from port scanners,
+    # TLS probes, and healthchecks hitting the HTTP socket.
+    class _InvalidHttpFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            msg = record.getMessage()
+            return "Invalid HTTP request received" not in msg
+    logging.getLogger("uvicorn.error").addFilter(_InvalidHttpFilter())
+
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):

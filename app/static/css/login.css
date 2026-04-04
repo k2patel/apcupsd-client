@@ -1,11 +1,59 @@
-.auth-body { background: #2c3e50; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-.auth-card { background: #fff; border-radius: 8px; padding: 32px; width: 360px; box-shadow: 0 8px 24px rgba(0,0,0,.3); }
-.auth-card.wide { width: 440px; }
-.auth-card h1 { margin: 0 0 20px; text-align: center; font-size: 22px; }
-.form-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
-.form-field label { font-size: 13px; color: #555; }
-.form-field input { padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
-.btn-primary { background: #3498db; color: #fff; border: 0; padding: 10px 16px; border-radius: 4px; cursor: pointer; font-size: 14px; }
-.btn-primary:hover { background: #2980b9; }
-.btn-block { width: 100%; }
-.login-error { margin-top: 12px; padding: 8px 12px; background: #fee; color: #c0392b; border-radius: 4px; font-size: 13px; }
+/* ============================================================
+   Login / Setup page. Inherits tokens from base.css.
+   ============================================================ */
+
+.auth-body {
+  background:
+    radial-gradient(ellipse 800px 600px at 50% -200px, rgba(96,165,250,.08), transparent),
+    var(--bg);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.auth-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 36px 32px;
+  width: 380px;
+  box-shadow: var(--shadow-lg);
+}
+.auth-card.wide { width: 460px; }
+
+.auth-card h1 {
+  margin: 0 0 6px;
+  text-align: center;
+  font-size: 22px;
+  color: var(--text);
+}
+.auth-card .muted { text-align: center; margin-bottom: 20px; }
+
+.form-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.form-field label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+.form-field input {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-family: inherit;
+}
+.form-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.15);
+}
+
+.login-error {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
