@@ -297,7 +297,10 @@ async def ups_debug(ups_name: str, user=Depends(require_session)):
 async def get_ups_ui_tiles(ups_name: str, user=Depends(require_session)):
     r = get_redis()
     raw = r.get(f"ups:ui:tiles:{ups_name}")
-    default = {"types": {}, "order": [], "hidden": [], "custom": [], "positions": {}}
+    default = {
+        "types": {}, "order": [], "hidden": [], "custom": [],
+        "positions": {}, "card_size": None,
+    }
     if not raw:
         return default
     try:
@@ -308,6 +311,7 @@ async def get_ups_ui_tiles(ups_name: str, user=Depends(require_session)):
             "hidden": data.get("hidden", []),
             "custom": data.get("custom", []),
             "positions": data.get("positions", {}),
+            "card_size": data.get("card_size"),
         }
     except Exception:
         return default
@@ -322,6 +326,17 @@ async def save_ups_ui_tiles(
     hidden = payload.get("hidden") if isinstance(payload.get("hidden"), list) else []
     custom = payload.get("custom") if isinstance(payload.get("custom"), list) else []
     positions = payload.get("positions") if isinstance(payload.get("positions"), dict) else {}
+    raw_card_size = payload.get("card_size")
+    card_size = None
+    if isinstance(raw_card_size, dict):
+        try:
+            w = int(raw_card_size.get("width") or 0)
+            h = int(raw_card_size.get("height") or 0)
+            # Clamp to sane bounds matching the frontend resize limits
+            if 200 <= w <= 2000 and 200 <= h <= 2000:
+                card_size = {"width": w, "height": h}
+        except (TypeError, ValueError):
+            card_size = None
     norm_custom = []
     for c in custom or []:
         if not isinstance(c, dict):
@@ -342,6 +357,7 @@ async def save_ups_ui_tiles(
         "hidden": hidden,
         "custom": norm_custom,
         "positions": positions,
+        "card_size": card_size,
         "saved_ts": int(time.time()),
     }
     r = get_redis()

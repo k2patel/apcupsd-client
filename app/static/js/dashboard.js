@@ -163,8 +163,8 @@ async function loadServerTileConfig(name) {
     saveToStorage(TILE_TYPE_KEY, savedTileTypes);
     saveToStorage(CARD_SIZE_KEY, savedCardSizes);
     // Clear server layout
-    try { 
-      await fetch(`/api/ups/${name}/ui_tiles`, { method:'DELETE' }); 
+    try {
+      await window.apiFetch(`/api/ups/${name}/ui_tiles`, { method:'DELETE' });
       debugLog(`Cleared server layout for ${name}`);
     } catch(err) {
       debugWarn(`Failed to clear server layout for ${name}:`, err);
@@ -324,10 +324,11 @@ async function saveServerTileConfig(name) {
     id: c.id, metric: c.metric, chart: c.chart, source: c.source || 'live'
   }));
   const positions = savedTilePos[name] || {};
+  const card_size = savedCardSizes[name] || null;
   try {
-    await fetch(`/api/ups/${name}/ui_tiles`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ types, order, hidden: hiddenArr, custom, positions })
+    await window.apiFetch(`/api/ups/${name}/ui_tiles`, {
+      method: 'POST',
+      body: JSON.stringify({ types, order, hidden: hiddenArr, custom, positions, card_size })
     });
   } catch {}
 }
@@ -368,6 +369,10 @@ function ensureUpsCard(name) {
       handle.textContent = '⇲';
       card.appendChild(handle);
       attachResizeBehavior(card, handle);
+    }
+    // Restore saved card size if not already applied inline
+    if (!card.style.width && savedCardSizes[name]) {
+      restoreCardSize(name);
     }
     return card;
   }
@@ -1261,7 +1266,7 @@ function persistTileOrder(name, grid) {
 function persistTilePositions(name, grid) {
   const positions = {};
   let maxX = 0, maxY = 0;
-  
+
   grid.querySelectorAll('.tile').forEach(tile => {
     const id = tile.dataset.tile;
     if (id) {
@@ -1269,34 +1274,39 @@ function persistTilePositions(name, grid) {
       const top = parseInt(tile.style.top || '0', 10);
       const width = parseInt(tile.style.width || '0', 10) || tile.offsetWidth;
       const height = parseInt(tile.style.height || '0', 10) || tile.offsetHeight;
-      
+
       positions[id] = { left, top, width, height };
-      
-      // Calculate required card size
+
+      // Track required card size (to grow card if tiles overflow)
       maxX = Math.max(maxX, left + width);
       maxY = Math.max(maxY, top + height);
     }
   });
-  
+
   savedTilePos[name] = positions;
   try { localStorage.setItem(TILE_POS_KEY, JSON.stringify(savedTilePos)); } catch(_) {}
-  
-  // Auto-adjust card size based on tile positions
+
+  // Only grow the card if tiles overflow its current bounds. Never shrink
+  // the user's manually-sized card.
   if (maxX > 0 && maxY > 0) {
-    const cardWidth = Math.max(maxX + 20, 400); // 20px padding
-    const cardHeight = Math.max(maxY + 70, 300); // 70px for header + padding
-    persistCardSize(name, cardWidth, cardHeight);
-    
-    // Apply the size immediately
     const card = document.getElementById(`card-${name}`);
     if (card) {
-      card.style.width = `${cardWidth}px`;
-      card.style.height = `${cardHeight}px`;
-      grid.style.width = `${cardWidth - 20}px`;
-      grid.style.height = `${cardHeight - 70}px`;
+      const neededW = maxX + 20;   // 20px right padding
+      const neededH = maxY + 70;   // 70px for header + bottom padding
+      const currentW = card.offsetWidth;
+      const currentH = card.offsetHeight;
+      const newW = Math.max(currentW, neededW);
+      const newH = Math.max(currentH, neededH);
+      if (newW > currentW || newH > currentH) {
+        card.style.width = `${newW}px`;
+        card.style.height = `${newH}px`;
+        grid.style.width = `${newW - 20}px`;
+        grid.style.height = `${newH - 70}px`;
+        persistCardSize(name, newW, newH);
+      }
     }
   }
-  
+
   scheduleServerTileSave(name);
 }
 
@@ -1476,6 +1486,10 @@ document.addEventListener('DOMContentLoaded', () => {
       savedTileHidden[name] = hiddenSet;
       savedCustomTiles[name] = cfg.custom || [];
       savedTilePos[name] = cfg.positions || savedTilePos[name] || {};
+      if (cfg.card_size && cfg.card_size.width && cfg.card_size.height) {
+        savedCardSizes[name] = { width: cfg.card_size.width, height: cfg.card_size.height };
+        saveToStorage(CARD_SIZE_KEY, savedCardSizes);
+      }
       try { localStorage.setItem(TILE_TYPE_KEY, JSON.stringify(savedTileTypes)); } catch{}
       try { localStorage.setItem(TILE_ORDER_KEY, JSON.stringify(savedTileOrder)); } catch{}
       try { localStorage.setItem(TILE_HIDDEN_KEY, JSON.stringify(savedTileHidden)); } catch{}
