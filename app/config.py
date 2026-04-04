@@ -11,7 +11,7 @@ from .settings import settings
 
 CONFIG_PATH = Path(settings.ups_config_path)  # legacy path for migration
 
-_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{1,32}$")
+_NAME_RE = re.compile(r"^[a-zA-Z0-9_.\- ]{1,32}$")
 _HOSTNAME_RE = re.compile(
     r"^(?=.{1,253}$)([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
 )
@@ -78,9 +78,9 @@ class UPSConfig(BaseModel):
     def _validate_name(cls, v: str) -> str:
         if not _NAME_RE.match(v):
             raise ValueError(
-                "name must be 1-32 chars, alphanumeric / underscore / dash only"
+                "name must be 1-32 chars (letters, digits, space, dot, underscore, dash)"
             )
-        return v
+        return v.strip()
 
     @field_validator("host")
     @classmethod

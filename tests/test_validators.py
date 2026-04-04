@@ -57,13 +57,20 @@ def test_reject_name_too_long():
 
 
 def test_reject_bad_name_chars():
-    with pytest.raises(Exception, match="alphanumeric"):
-        UPSConfig(name="bad name!", host="192.168.1.10")
+    with pytest.raises(Exception, match="letters, digits"):
+        UPSConfig(name="bad/name!", host="192.168.1.10")
 
 
 def test_accept_valid_name_chars():
     u = UPSConfig(name="ups_rack-01", host="192.168.1.10")
     assert u.name == "ups_rack-01"
+
+
+def test_accept_name_with_space_and_dot():
+    u = UPSConfig(name="APC UPS", host="192.168.1.10")
+    assert u.name == "APC UPS"
+    u2 = UPSConfig(name="Server.Room.UPS", host="192.168.1.10")
+    assert u2.name == "Server.Room.UPS"
 
 
 def test_reject_invalid_port():
