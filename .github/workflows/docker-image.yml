@@ -36,7 +36,46 @@ jobs:
           coverage run -m pytest tests/ -v
           coverage report
 
-  build:
+  build-melange-apko:
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate melange signing keypair
+        uses: chainguard-dev/actions/melange-keygen@main
+        with:
+          signing-key-path: melange.rsa
+
+      - name: Build package with melange
+        uses: chainguard-dev/actions/melange-build@main
+        with:
+          config: melange.yaml
+          signing-key-path: melange.rsa
+          archs: x86_64,aarch64
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish image with apko
+        uses: chainguard-images/actions/apko-publish@main
+        with:
+          config: apko.yaml
+          archs: x86_64,aarch64
+          tag: ghcr.io/k2patel/apcupsd-client:latest
+          keyring-append: melange.rsa.pub
+
+  build-docker:
     runs-on: ubuntu-latest
     needs: lint-and-test
     if: github.event_name != 'pull_request'

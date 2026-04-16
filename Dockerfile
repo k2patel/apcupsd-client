@@ -1,4 +1,6 @@
 # syntax=docker/dockerfile:1.6
+# NOTE: The primary build method is now melange + apko (see melange.yaml / apko.yaml).
+# This Dockerfile is kept for local dev and Docker Compose backward compatibility.
 FROM python:3.12.7-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

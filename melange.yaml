@@ -1,0 +1,61 @@
+package:
+  name: apcupsd-client
+  version: 1.0.0
+  epoch: 0
+  description: FastAPI + Redis UPS monitoring dashboard
+  copyright:
+    - license: MIT
+
+environment:
+  contents:
+    repositories:
+      - https://dl-cdn.alpinelinux.org/alpine/edge/main
+      - https://dl-cdn.alpinelinux.org/alpine/edge/community
+    packages:
+      - alpine-baselayout
+      - busybox
+      - python3
+      - python3-dev
+      - py3-pip
+      - py3-virtualenv
+      - gcc
+      - musl-dev
+      - libffi-dev
+
+pipeline:
+  - name: Create virtualenv and install dependencies
+    runs: |
+      set -ex
+      mkdir -p "${{targets.destdir}}/app"
+      python3 -m virtualenv "${{targets.destdir}}/app/.venv"
+      "${{targets.destdir}}/app/.venv/bin/pip" install \
+        --no-cache-dir \
+        -r requirements.prod.txt
+
+  - name: Copy application source
+    runs: |
+      set -ex
+      cp -r app/ "${{targets.destdir}}/app/app/"
+
+  - name: Create entrypoint script
+    runs: |
+      set -ex
+      mkdir -p "${{targets.destdir}}/usr/bin"
+      cat > "${{targets.destdir}}/usr/bin/start-server" <<'SCRIPT'
+      #!/bin/sh
+      exec /app/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+      SCRIPT
+      chmod +x "${{targets.destdir}}/usr/bin/start-server"
+
+  - name: Fix virtualenv shebangs
+    runs: |
+      set -ex
+      # Rewrite shebangs so they reference the final installed path
+      find "${{targets.destdir}}/app/.venv/bin" -type f -exec \
+        sed -i "s|${{targets.destdir}}||g" {} +
+
+data:
+  - name: runtime-deps
+    items:
+      python3: python3
+      apcupsd: apcupsd
