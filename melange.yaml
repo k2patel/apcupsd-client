@@ -8,9 +8,8 @@ package:
   dependencies:
     runtime:
       - python3
-
-options:
-  no-depends: true
+    provides:
+      - python-3.12-base=3.12
 
 environment:
   contents:
