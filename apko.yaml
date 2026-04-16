@@ -26,11 +26,6 @@ environment:
   REDIS_URL: "redis://redis:6379/0"
 
 entrypoint:
-  command: /app/.venv/bin/python
-  services:
-    uvicorn:
-      command: /app/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
-
-cmd: "-m uvicorn app.main:app --host 0.0.0.0 --port 8000"
+  command: /app/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 work-dir: /app
