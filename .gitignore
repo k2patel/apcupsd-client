@@ -51,3 +51,8 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+
+# Melange / apko build artifacts
+packages/
+melange.rsa
+melange.rsa.pub

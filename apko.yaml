@@ -1,0 +1,31 @@
+contents:
+  repositories:
+    - https://dl-cdn.alpinelinux.org/alpine/edge/main
+    - https://dl-cdn.alpinelinux.org/alpine/edge/community
+    - '@local ./packages'
+  packages:
+    - alpine-baselayout
+    - busybox
+    - python3
+    - apcupsd
+    - apcupsd-client@local
+
+accounts:
+  groups:
+    - groupname: appuser
+      gid: 10001
+  users:
+    - username: appuser
+      uid: 10001
+      gid: 10001
+  run-as: 10001
+
+environment:
+  PYTHONDONTWRITEBYTECODE: "1"
+  PYTHONUNBUFFERED: "1"
+  REDIS_URL: "redis://redis:6379/0"
+
+entrypoint:
+  command: /usr/bin/start-server
+
+work-dir: /app

@@ -1,7 +1,6 @@
-version: '3.9'
 services:
   web:
-    build: .
+    image: docker.io/k2patel/apcupsd-client:latest
     container_name: apcups-dashboard
     ports:
       - "10280:8000"
@@ -22,8 +21,6 @@ services:
     image: redis:7-alpine
     container_name: redis
     restart: always
-    # Uncomment to require password (must also set REDIS_URL=redis://:PASS@redis:6379/0):
-    # command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--requirepass", "${REDIS_PASSWORD}"]
     command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
