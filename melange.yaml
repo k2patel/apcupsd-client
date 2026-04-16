@@ -1,15 +1,10 @@
 package:
-  name: apcupsd-client
+  name: apcupsd-client-build
   version: 1.0.0
   epoch: 0
-  description: FastAPI + Redis UPS monitoring dashboard
+  description: Build stage for apcupsd-client (not installed directly)
   copyright:
     - license: MIT
-  dependencies:
-    runtime:
-      - python3
-    provides:
-      - python-3.12-base=3.12
 
 environment:
   contents:
@@ -59,3 +54,16 @@ pipeline:
       find "${{targets.destdir}}/app/.venv" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
       find "${{targets.destdir}}/app/.venv" -name "*.pyc" -delete 2>/dev/null || true
 
+subpackages:
+  - name: apcupsd-client
+    description: FastAPI + Redis UPS monitoring dashboard
+    options:
+      no-depends: true
+    dependencies:
+      runtime:
+        - python3
+    pipeline:
+      - runs: |
+          set -ex
+          mkdir -p "${{targets.subpkgdir}}"
+          mv "${{targets.destdir}}/app" "${{targets.subpkgdir}}/app"
