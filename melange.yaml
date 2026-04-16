@@ -1,26 +1,22 @@
 package:
-  name: apcupsd-client
+  name: apcupsd-client-build
   version: 1.0.0
   epoch: 0
-  description: FastAPI + Redis UPS monitoring dashboard
+  description: Build stage for apcupsd-client (not installed directly)
   copyright:
     - license: MIT
 
 environment:
   contents:
     repositories:
-      - https://dl-cdn.alpinelinux.org/alpine/edge/main
-      - https://dl-cdn.alpinelinux.org/alpine/edge/community
+      - https://dl-cdn.alpinelinux.org/alpine/v3.21/main
+      - https://dl-cdn.alpinelinux.org/alpine/v3.21/community
     packages:
       - alpine-baselayout
       - busybox
       - python3
-      - python3-dev
       - py3-pip
       - py3-virtualenv
-      - gcc
-      - musl-dev
-      - libffi-dev
 
 pipeline:
   - name: Create virtualenv and install dependencies
@@ -30,6 +26,7 @@ pipeline:
       python3 -m virtualenv "${{targets.destdir}}/app/.venv"
       "${{targets.destdir}}/app/.venv/bin/pip" install \
         --no-cache-dir \
+        --only-binary :all: \
         -r requirements.prod.txt
 
   - name: Copy application source
@@ -37,25 +34,36 @@ pipeline:
       set -ex
       cp -r app/ "${{targets.destdir}}/app/app/"
 
-  - name: Create entrypoint script
-    runs: |
-      set -ex
-      mkdir -p "${{targets.destdir}}/usr/bin"
-      cat > "${{targets.destdir}}/usr/bin/start-server" <<'SCRIPT'
-      #!/bin/sh
-      exec /app/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
-      SCRIPT
-      chmod +x "${{targets.destdir}}/usr/bin/start-server"
-
   - name: Fix virtualenv shebangs
     runs: |
       set -ex
-      # Rewrite shebangs so they reference the final installed path
       find "${{targets.destdir}}/app/.venv/bin" -type f -exec \
         sed -i "s|${{targets.destdir}}||g" {} +
 
-data:
-  - name: runtime-deps
-    items:
-      python3: python3
-      apcupsd: apcupsd
+  - name: Strip build artifacts from virtualenv
+    runs: |
+      set -ex
+      rm -rf "${{targets.destdir}}/app/.venv/bin/pip"*
+      rm -rf "${{targets.destdir}}/app/.venv/bin/wheel"*
+      rm -rf "${{targets.destdir}}/app/.venv/lib/python*/site-packages/pip"
+      rm -rf "${{targets.destdir}}/app/.venv/lib/python*/site-packages/pip-*"
+      rm -rf "${{targets.destdir}}/app/.venv/lib/python*/site-packages/setuptools"
+      rm -rf "${{targets.destdir}}/app/.venv/lib/python*/site-packages/setuptools-*"
+      rm -rf "${{targets.destdir}}/app/.venv/lib/python*/site-packages/wheel"
+      rm -rf "${{targets.destdir}}/app/.venv/lib/python*/site-packages/wheel-*"
+      find "${{targets.destdir}}/app/.venv" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+      find "${{targets.destdir}}/app/.venv" -name "*.pyc" -delete 2>/dev/null || true
+
+subpackages:
+  - name: apcupsd-client
+    description: FastAPI + Redis UPS monitoring dashboard
+    options:
+      no-depends: true
+    dependencies:
+      runtime:
+        - python3
+    pipeline:
+      - runs: |
+          set -ex
+          mkdir -p "${{targets.subpkgdir}}"
+          mv "${{targets.destdir}}/app" "${{targets.subpkgdir}}/app"
