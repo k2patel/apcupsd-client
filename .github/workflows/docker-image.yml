@@ -74,28 +74,3 @@ jobs:
           tag: ghcr.io/k2patel/apcupsd-client:latest
           keyring-append: melange.rsa.pub
 
-  build-docker:
-    runs-on: ubuntu-latest
-    needs: lint-and-test
-    if: github.event_name != 'pull_request'
-    steps:
-      - name: Set Image name
-        run: |
-          echo "IMAGE_NAME=k2patel/apcupsd-client:latest" >> $GITHUB_ENV
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_TOKEN }}
-
-      - name: Build the Docker image
-        id: build
-        run: |
-          docker build . -t ${{ env.IMAGE_NAME }}
-
-      - name: Push the Docker image
-        run: docker push ${{ env.IMAGE_NAME }}

@@ -1,11 +1,11 @@
 contents:
   repositories:
-    - https://dl-cdn.alpinelinux.org/alpine/edge/main
-    - https://dl-cdn.alpinelinux.org/alpine/edge/community
+    - https://dl-cdn.alpinelinux.org/alpine/v3.21/main
+    - https://dl-cdn.alpinelinux.org/alpine/v3.21/community
     - '@local ./packages'
   packages:
-    - alpine-baselayout
-    - busybox
+    - alpine-baselayout-data
+    - ca-certificates-bundle
     - python3
     - apcupsd
     - apcupsd-client@local
@@ -26,6 +26,11 @@ environment:
   REDIS_URL: "redis://redis:6379/0"
 
 entrypoint:
-  command: /usr/bin/start-server
+  command: /app/.venv/bin/python
+  services:
+    uvicorn:
+      command: /app/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+cmd: "-m uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
 work-dir: /app
