@@ -1,0 +1,56 @@
+namespace: apcupsd
+
+app:
+  image: ghcr.io/k2patel/apcupsd-client:latest
+  replicas: 1
+  port: 8000
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "500m"
+  securityContext:
+    runAsUser: 10001
+    runAsGroup: 10001
+  probes:
+    liveness:
+      path: /healthz
+      initialDelaySeconds: 15
+      periodSeconds: 30
+    readiness:
+      path: /readyz
+      initialDelaySeconds: 5
+      periodSeconds: 10
+
+service:
+  type: LoadBalancer
+  port: 80
+
+redis:
+  enabled: true
+  image: redis:7-alpine
+  port: 6379
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "250m"
+  storage: 1Gi
+  securityContext:
+    runAsUser: 999
+    runAsGroup: 999
+
+config:
+  ADMIN_USERNAME: "admin"
+  REDIS_URL: "redis://redis:6379/0"
+  ALLOW_PRIVATE_IPS: "true"
+  TRUST_PROXY: "false"
+  LOG_LEVEL: "INFO"
+  RATE_LIMIT_ENABLED: "true"
+  SESSION_MAX_AGE_SECONDS: "1209600"
+  TZ: "America/New_York"
+  UPS_CONFIG_PATH: "/config/ups.yaml"
