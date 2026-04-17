@@ -1,0 +1,6 @@
+apiVersion: v2
+name: apcupsd-client
+description: FastAPI + Redis UPS monitoring dashboard
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
