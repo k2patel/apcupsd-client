@@ -52,6 +52,9 @@ Thumbs.db
 *.tmp
 *.temp
 
+# Kubernetes secrets (sops-encrypted original stays local)
+k8s/secret.yaml
+
 # Melange / apko build artifacts
 packages/
 melange.rsa

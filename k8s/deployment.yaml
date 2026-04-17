@@ -33,8 +33,6 @@ spec:
             - containerPort: 8000
               protocol: TCP
           envFrom:
-            - configMapRef:
-                name: apcupsd-client-config
             - secretRef:
                 name: apcupsd-client-secret
           livenessProbe:
