@@ -52,5 +52,5 @@ config:
   LOG_LEVEL: "INFO"
   RATE_LIMIT_ENABLED: "true"
   SESSION_MAX_AGE_SECONDS: "1209600"
-  TZ: "America/New_York"
+  TZ: "UTC"
   UPS_CONFIG_PATH: "/config/ups.yaml"

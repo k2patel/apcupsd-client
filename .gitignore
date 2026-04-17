@@ -52,7 +52,8 @@ Thumbs.db
 *.tmp
 *.temp
 
-# Secrets (sops-encrypted, never commit decrypted)
+# Helm values (contain environment-specific config)
+chart/values.yaml
 chart/values-secret.yaml
 
 # Melange / apko build artifacts
