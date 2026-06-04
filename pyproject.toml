@@ -2,7 +2,7 @@
 name = "apcupsd-client"
 version = "0.2.0"
 description = "FastAPI + Redis dashboard for monitoring multiple APC UPS devices via apcupsd NIS"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 readme = "README.md"
 license = { text = "MIT" }
 
@@ -17,7 +17,7 @@ filterwarnings = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py314"
 extend-exclude = [".venv", "app/static"]
 
 [tool.ruff.lint]

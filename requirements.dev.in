@@ -1,0 +1,9 @@
+-r requirements.in
+
+# Dev / test dependencies
+coverage
+pytest
+pytest-asyncio
+httpx
+fakeredis
+ruff

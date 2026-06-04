@@ -2,7 +2,7 @@ package:
   name: apcupsd-client-build
   version: 1.0.0
   epoch: 0
-  description: Build stage for apcupsd-client (not installed directly)
+  description: Build stage for apcupsd-client dev image (not installed directly)
   copyright:
     - license: MIT
 
@@ -28,7 +28,7 @@ pipeline:
         --no-cache-dir \
         --only-binary :all: \
         --require-hashes \
-        -r requirements.txt
+        -r requirements.dev.txt
 
   - name: Copy application source
     runs: |
@@ -57,7 +57,7 @@ pipeline:
 
 subpackages:
   - name: apcupsd-client
-    description: FastAPI + Redis UPS monitoring dashboard
+    description: FastAPI + Redis UPS monitoring dashboard with dev dependencies
     options:
       no-depends: true
     dependencies:

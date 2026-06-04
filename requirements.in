@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+pyyaml
+redis
+pydantic
+pydantic-settings
+jinja2
+python-multipart
+orjson
+passlib[argon2]
+itsdangerous
+slowapi
+python-json-logger
+tenacity
+prometheus-client
