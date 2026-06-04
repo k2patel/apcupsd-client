@@ -23,7 +23,7 @@ A production-ready FastAPI + Redis dashboard for monitoring multiple APC UPS dev
 - SSRF host validation (rejects loopback/link-local; private IPs gated by `ALLOW_PRIVATE_IPS`)
 - SMTP password **only** from env — never persisted to Redis
 - Subprocess timeout on `apcaccess` (10s), rate-limiting on auth/config, security headers + CSP
-- Non-root container (UID 10001), pinned `python:3.12.7-slim` multi-stage build
+- Non-root container (UID 10001), digest-pinned `python:3.14.5-slim` multi-stage build
 - `/healthz`, `/readyz`, `/metrics` (Prometheus), JSON structured logs with request-ID correlation
 - GitHub Actions pipeline runs ruff + pytest before building/publishing the image
 
@@ -82,9 +82,12 @@ Your remote APC UPS hosts must run `apcupsd` with the Network Information Server
 
 ## Development
 
+Production Docker builds install `requirements.txt`; local development and CI use
+`requirements.dev.txt`.
+
 ```bash
-python3.12 -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
+python3.14 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.dev.txt
 
 # Run tests (uses fakeredis)
 pytest tests/

@@ -1,7 +1,10 @@
 # syntax=docker/dockerfile:1.6
 # NOTE: The primary build method is now melange + apko (see melange.yaml / apko.yaml).
 # This Dockerfile is kept for local dev and Docker Compose backward compatibility.
-FROM python:3.12.7-slim AS builder
+ARG PYTHON_IMAGE=python:3.14.5-slim@sha256:c845af9399020c7e562969a13689e929074a10fd057acd1b1fad06a2fb068e97
+ARG REQUIREMENTS_FILE=requirements.txt
+FROM ${PYTHON_IMAGE} AS builder
+ARG REQUIREMENTS_FILE
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -13,11 +16,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential gcc \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt ./
-RUN pip install --upgrade pip && pip wheel --wheel-dir /wheels -r requirements.txt
+COPY ${REQUIREMENTS_FILE} requirements.txt
+RUN pip install --upgrade pip && pip wheel --require-hashes --wheel-dir /wheels -r requirements.txt
 
 
-FROM python:3.12.7-slim AS runtime
+FROM ${PYTHON_IMAGE} AS runtime
+ARG REQUIREMENTS_FILE
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -33,8 +37,8 @@ RUN apt-get update \
     && useradd --system --uid 10001 --gid 10001 --home /app --shell /usr/sbin/nologin appuser
 
 COPY --from=builder /wheels /wheels
-COPY requirements.txt ./
-RUN pip install --no-index --find-links=/wheels -r requirements.txt \
+COPY ${REQUIREMENTS_FILE} requirements.txt
+RUN pip install --no-index --find-links=/wheels --require-hashes -r requirements.txt \
     && rm -rf /wheels
 
 COPY app ./app
