@@ -52,6 +52,19 @@ def test_login_rejects_before_setup(app_client, fake_redis):
     assert r.status_code == 409
 
 
+def test_login_page_renders_when_configured(app_client, fake_redis):
+    store_admin("admin", "testpassword123")
+    r = app_client.get("/login")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+
+
+def test_setup_page_renders_before_configured(app_client, fake_redis):
+    r = app_client.get("/setup")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+
+
 def test_login_happy_path(app_client, fake_redis):
     store_admin("admin", "testpassword123")
     r = app_client.post(

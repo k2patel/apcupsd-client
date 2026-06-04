@@ -37,9 +37,9 @@ async def dashboard(request: Request):
     cfg = load_config()
     user = current_user(request)
     response = templates.TemplateResponse(
+        request,
         "dashboard.html",
         {
-            "request": request,
             "ups_list": cfg.ups,
             "ui_cfg": cfg.ui.model_dump(),
             "current_user": user,
@@ -56,8 +56,9 @@ async def config_page(request: Request):
     if redirect:
         return redirect
     response = templates.TemplateResponse(
+        request,
         "config.html",
-        {"request": request, "current_user": current_user(request), "active_nav": "config"},
+        {"current_user": current_user(request), "active_nav": "config"},
     )
     _ensure_csrf(request, response)
     return response
@@ -69,8 +70,9 @@ async def events_page(request: Request):
     if redirect:
         return redirect
     response = templates.TemplateResponse(
+        request,
         "events.html",
-        {"request": request, "current_user": current_user(request), "active_nav": "events"},
+        {"current_user": current_user(request), "active_nav": "events"},
     )
     _ensure_csrf(request, response)
     return response
@@ -82,8 +84,9 @@ async def alerts_page(request: Request):
     if redirect:
         return redirect
     response = templates.TemplateResponse(
+        request,
         "alerts.html",
-        {"request": request, "current_user": current_user(request), "active_nav": "alerts"},
+        {"current_user": current_user(request), "active_nav": "alerts"},
     )
     _ensure_csrf(request, response)
     return response
@@ -95,8 +98,9 @@ async def settings_page(request: Request):
     if redirect:
         return redirect
     response = templates.TemplateResponse(
+        request,
         "settings.html",
-        {"request": request, "current_user": current_user(request), "active_nav": "settings"},
+        {"current_user": current_user(request), "active_nav": "settings"},
     )
     _ensure_csrf(request, response)
     return response
@@ -108,11 +112,11 @@ async def login_page(request: Request):
         return RedirectResponse("/setup", status_code=302)
     if current_user(request):
         return RedirectResponse("/", status_code=302)
-    return templates.TemplateResponse("login.html", {"request": request})
+    return templates.TemplateResponse(request, "login.html")
 
 
 @router.get("/setup", response_class=HTMLResponse)
 async def setup_page(request: Request):
     if is_admin_configured():
         return RedirectResponse("/login", status_code=302)
-    return templates.TemplateResponse("setup.html", {"request": request})
+    return templates.TemplateResponse(request, "setup.html")
