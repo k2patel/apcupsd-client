@@ -22,6 +22,10 @@ jobs:
         shell: bash
         run: |
           git init .
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -p 2222 git.k2patel.in >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
           git remote add origin "ssh://git@git.k2patel.in:2222/k2patel/apcupsd-client.git"
           git -c protocol.version=2 fetch --no-tags --prune --depth=1 origin +refs/heads/main:refs/remotes/origin/main
           git checkout --force refs/remotes/origin/main
