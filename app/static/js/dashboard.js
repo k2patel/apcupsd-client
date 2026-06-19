@@ -234,10 +234,14 @@ async function loadServerTileConfig(name) {
     scheduleServerTileSave(name);
   }
 
-let pendingSave = null;
+const pendingSaves = {};
 function scheduleServerTileSave(name) {
-  if (pendingSave) clearTimeout(pendingSave);
-  pendingSave = setTimeout(() => saveServerTileConfig(name), 800);
+  if (!name) return;
+  if (pendingSaves[name]) clearTimeout(pendingSaves[name]);
+  pendingSaves[name] = setTimeout(() => {
+    delete pendingSaves[name];
+    saveServerTileConfig(name);
+  }, 800);
 }
 
 function autoArrangeTiles(name, grid) {
@@ -314,14 +318,15 @@ function autoArrangeTiles(name, grid) {
     grid.style.height = `${cardHeight - 70}px`;
     
     // Save card size
-    persistCardSize(name, cardWidth, cardHeight);
+    persistCardSize(name, cardWidth, cardHeight, false);
     debugLog(`Auto-arranged ${tiles.length} tiles for ${name}, card size: ${cardWidth}x${cardHeight}`);
   }
 }
 
-function persistCardSize(name, width, height) {
+function persistCardSize(name, width, height, syncServer = true) {
   savedCardSizes[name] = { width, height };
   saveToStorage(CARD_SIZE_KEY, savedCardSizes);
+  if (syncServer) scheduleServerTileSave(name);
 }
 
 function restoreCardSize(name) {
@@ -338,6 +343,20 @@ function restoreCardSize(name) {
     return true;
   }
   return false;
+}
+
+function hasSavedPositions(name) {
+  return Object.keys(savedTilePos[name] || {}).length > 0;
+}
+
+function applyDefaultTileTypes(name) {
+  savedTileTypes[name] = savedTileTypes[name] || {
+    load_pct: 'gauge',
+    volt_line: 'value',
+    volt_output: 'value',
+    watts_usage: 'value'
+  };
+  try { localStorage.setItem(TILE_TYPE_KEY, JSON.stringify(savedTileTypes)); } catch{}
 }
 
 async function saveServerTileConfig(name) {
@@ -407,7 +426,8 @@ function ensureUpsCard(name) {
   div.id = `card-${name}`;
   // Apply saved size if available
   if (savedSizes[name]) {
-    const { w, h } = savedSizes[name];
+    const w = savedSizes[name].width || savedSizes[name].w;
+    const h = savedSizes[name].height || savedSizes[name].h;
     if (w) div.style.width = w + 'px';
     if (h) div.style.height = h + 'px';
   }
@@ -465,13 +485,7 @@ function ensureUpsCard(name) {
   }
   // Set default tile types for new UPS (static layout)
   if (!savedTileTypes[name]) {
-    savedTileTypes[name] = {
-      load_pct: 'gauge',
-      volt_line: 'value', 
-      volt_output: 'value',
-      watts_usage: 'value'
-    };
-    try { localStorage.setItem(TILE_TYPE_KEY, JSON.stringify(savedTileTypes)); } catch{}
+    applyDefaultTileTypes(name);
   }
   // Initialize tiles
   initTilesFor(name, div.querySelector('[data-tile-grid]'));
@@ -677,6 +691,9 @@ function createCustomTile(name, grid, tileCfg) {
   tile.setAttribute('draggable','true');
   const headerLabel = METRIC_LABELS[tileCfg.metric] ? METRIC_LABELS[tileCfg.metric] : tileCfg.metric;
   tile.innerHTML = `<div class="tile-controls"><button data-remove-tile title="Remove">✕</button></div><h4>${escapeHtml(headerLabel)}</h4><div class="tile-body"></div>`;
+  const resizeHandle = document.createElement('div');
+  resizeHandle.className = 'tile-resize';
+  tile.appendChild(resizeHandle);
   grid.appendChild(tile);
   buildCustomTileVisualization(name, tile, tileCfg);
   const removeBtn = tile.querySelector('[data-remove-tile]');
@@ -707,8 +724,9 @@ function rebuildAllTiles(name) {
 function removeCustomTile(name, id, tileEl) {
   savedCustomTiles[name] = (savedCustomTiles[name]||[]).filter(t => t.id !== id);
   try { localStorage.setItem(CUSTOM_TILES_KEY, JSON.stringify(savedCustomTiles)); } catch(_) {}
+  const grid = tileEl?.parentElement;
   if (tileEl) tileEl.remove();
-  persistTileOrder(name, tileEl.parentElement);
+  if (grid) persistTileOrder(name, grid);
   scheduleServerTileSave(name);
 }
 
@@ -1508,22 +1526,16 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
     
-    savedTileTypes[name] = {
-      load_pct: 'gauge',  
-      volt_line: 'value',
-      volt_output: 'value',
-      watts_usage: 'value'
-    };
-    try { localStorage.setItem(TILE_TYPE_KEY, JSON.stringify(savedTileTypes)); } catch{}
+    applyDefaultTileTypes(name);
     
     const cfg = await loadServerTileConfig(name);
-    if (cfg) {
-      savedTileTypes[name] = cfg.types || savedTileTypes[name] || {};
-      savedTileOrder[name] = cfg.order || savedTileOrder[name] || [];
+    if (cfg && cfg.exists !== false) {
+      savedTileTypes[name] = Object.keys(cfg.types || {}).length ? cfg.types : savedTileTypes[name] || {};
+      savedTileOrder[name] = (cfg.order || []).length ? cfg.order : savedTileOrder[name] || [];
       const hiddenSet = {}; (cfg.hidden||[]).forEach(h => hiddenSet[h]=true);
       savedTileHidden[name] = hiddenSet;
-      savedCustomTiles[name] = cfg.custom || [];
-      savedTilePos[name] = cfg.positions || savedTilePos[name] || {};
+      savedCustomTiles[name] = (cfg.custom || []).length ? cfg.custom : savedCustomTiles[name] || [];
+      savedTilePos[name] = Object.keys(cfg.positions || {}).length ? cfg.positions : savedTilePos[name] || {};
       if (cfg.card_size && cfg.card_size.width && cfg.card_size.height) {
         savedCardSizes[name] = { width: cfg.card_size.width, height: cfg.card_size.height };
         saveToStorage(CARD_SIZE_KEY, savedCardSizes);
@@ -1540,18 +1552,15 @@ document.addEventListener('DOMContentLoaded', () => {
       // Force rebuild tiles with correct types
       rebuildAllTiles(name);
       // If no stored positions existed, perform an auto layout
-      if (!cfg.positions || Object.keys(cfg.positions).length === 0) {
-        resetLayout(name);
+      if (!hasSavedPositions(name)) {
+        autoArrangeTiles(name, grid);
+        persistTilePositions(name, grid);
+      } else if (!Object.keys(cfg.positions || {}).length) {
+        scheduleServerTileSave(name);
       }
     } else {
-      // No server config: apply default static layout
-      savedTileTypes[name] = {
-        load_pct: 'gauge',
-        volt_line: 'value',
-        volt_output: 'value',
-        watts_usage: 'value'
-      };
-      try { localStorage.setItem(TILE_TYPE_KEY, JSON.stringify(savedTileTypes)); } catch{}
+      // No server config: keep any local layout and backfill it to the server.
+      applyDefaultTileTypes(name);
       const grid = card.querySelector('[data-tile-grid]');
       debugLog('Initializing default tiles for', name, 'grid found:', !!grid);
       grid.innerHTML='';
@@ -1559,18 +1568,13 @@ document.addEventListener('DOMContentLoaded', () => {
       debugLog('Tiles created, count:', grid.children.length);
       // Force rebuild tiles with correct types
       rebuildAllTiles(name);
-      // Apply static layout directly (same as in resetLayout)
-      const loadTile = grid.querySelector('.tile[data-tile="load_pct"]');
-      const lineTile = grid.querySelector('.tile[data-tile="volt_line"]');
-      const outTile = grid.querySelector('.tile[data-tile="volt_output"]');
-      const wattsTile = grid.querySelector('.tile[data-tile="watts_usage"]');
-      if (loadTile) { loadTile.style.left='10px'; loadTile.style.top='10px'; loadTile.style.width='200px'; loadTile.style.height='160px'; }
-      if (lineTile) { lineTile.style.left='230px'; lineTile.style.top='10px'; lineTile.style.width='180px'; lineTile.style.height='70px'; }
-      if (outTile) { outTile.style.left='230px'; outTile.style.top='100px'; outTile.style.width='180px'; outTile.style.height='70px'; }
-      if (wattsTile) { wattsTile.style.left='10px'; wattsTile.style.top='190px'; wattsTile.style.width='400px'; wattsTile.style.height='200px'; }
+      if (!hasSavedPositions(name)) {
+        autoArrangeTiles(name, grid);
+        persistTilePositions(name, grid);
+      } else {
+        scheduleServerTileSave(name);
+      }
       setTimeout(()=>{ Object.values(charts).forEach(ch=>{ try{ ch.resize(); }catch{} }); }, 50);
-      persistTilePositions(name, grid);
-      scheduleServerTileSave(name);
     }
   });
 });

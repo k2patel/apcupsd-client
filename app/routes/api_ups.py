@@ -299,7 +299,7 @@ async def get_ups_ui_tiles(ups_name: str, user=Depends(require_session)):
     raw = r.get(f"ups:ui:tiles:{ups_name}")
     default = {
         "types": {}, "order": [], "hidden": [], "custom": [],
-        "positions": {}, "card_size": None,
+        "positions": {}, "card_size": None, "exists": False,
     }
     if not raw:
         return default
@@ -312,6 +312,7 @@ async def get_ups_ui_tiles(ups_name: str, user=Depends(require_session)):
             "custom": data.get("custom", []),
             "positions": data.get("positions", {}),
             "card_size": data.get("card_size"),
+            "exists": True,
         }
     except Exception:
         return default

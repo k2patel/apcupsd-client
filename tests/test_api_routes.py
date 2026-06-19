@@ -139,6 +139,40 @@ def test_ups_health_offline(authed_client, fake_redis):
     assert body["fail_count"] == 3
 
 
+def test_ui_tile_layout_preserves_tile_and_card_sizes(authed_client):
+    payload = {
+        "types": {"watts_usage": "line"},
+        "order": ["load_pct", "watts_usage"],
+        "hidden": [],
+        "custom": [],
+        "positions": {
+            "load_pct": {"left": 20, "top": 40, "width": 260, "height": 180},
+            "watts_usage": {"left": 320, "top": 40, "width": 520, "height": 260},
+        },
+        "card_size": {"width": 900, "height": 460},
+    }
+
+    r = authed_client.post("/api/ups/u1/ui_tiles", json=payload)
+    assert r.status_code == 200
+
+    r = authed_client.get("/api/ups/u1/ui_tiles")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["exists"] is True
+    assert body["positions"]["load_pct"]["width"] == 260
+    assert body["positions"]["load_pct"]["height"] == 180
+    assert body["positions"]["watts_usage"]["width"] == 520
+    assert body["positions"]["watts_usage"]["height"] == 260
+    assert body["card_size"] == {"width": 900, "height": 460}
+
+
+def test_ui_tile_layout_reports_missing_server_config(authed_client):
+    r = authed_client.get("/api/ups/u1/ui_tiles")
+
+    assert r.status_code == 200
+    assert r.json()["exists"] is False
+
+
 def test_battery_health_empty(authed_client):
     _add_ups(authed_client)
     r = authed_client.get("/api/ups/u1/battery_health")
