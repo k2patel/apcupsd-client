@@ -20,14 +20,26 @@ jobs:
     steps:
       - name: Checkout
         shell: bash
+        env:
+          GITEA_SSH_PRIVATE_KEY: ${{ secrets.GITEA_SSH_PRIVATE_KEY }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
         run: |
           git init .
+          checkout_key="${GITEA_SSH_PRIVATE_KEY:-${SSH_PRIVATE_KEY:-${DEPLOY_KEY:-}}}"
+          if [[ -z "$checkout_key" ]]; then
+            echo "::error::No global SSH checkout key found. Configure GITEA_SSH_PRIVATE_KEY, SSH_PRIVATE_KEY, or DEPLOY_KEY."
+            exit 1
+          fi
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
+          printf '%s\n' "$checkout_key" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -p 2222 git.k2patel.in >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
           git remote add origin "ssh://git@git.k2patel.in:2222/k2patel/apcupsd-client.git"
-          git -c protocol.version=2 fetch --no-tags --prune --depth=1 origin +refs/heads/main:refs/remotes/origin/main
+          GIT_SSH_COMMAND="ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
+            git -c protocol.version=2 fetch --no-tags --prune --depth=1 origin +refs/heads/main:refs/remotes/origin/main
           git checkout --force refs/remotes/origin/main
 
       - name: Determine image tag
