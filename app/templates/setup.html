@@ -8,9 +8,10 @@
   <link rel="stylesheet" href="/static/css/login.css" />
 </head>
 <body class="auth-body">
-  <div class="auth-card wide">
+  <div class="auth-card wide" data-auth-card="setup">
+    <div class="auth-mark">APC</div>
     <h1>First-run Setup</h1>
-    <p class="muted">Create the admin account. Passwords must be at least 8 characters.</p>
+    <p class="muted">Create the admin account before exposing UPS controls.</p>
     <form id="setup-form">
       <div class="form-field">
         <label for="username">Admin username</label>
@@ -27,36 +28,8 @@
       <button type="submit" class="btn-primary btn-block">Create admin account</button>
       <div id="setup-error" class="login-error" hidden></div>
     </form>
-    <p class="muted" style="margin-top:16px;">After setup you'll be redirected to the dashboard. Configure UPS devices and SMTP from the nav.</p>
+    <p class="muted auth-note">After setup you will be redirected to the dashboard. Configure UPS devices and SMTP from the nav.</p>
   </div>
-  <script>
-    document.getElementById('setup-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const errBox = document.getElementById('setup-error');
-      errBox.hidden = true;
-      const pw = document.getElementById('password').value;
-      const pw2 = document.getElementById('password2').value;
-      if (pw !== pw2) {
-        errBox.textContent = 'Passwords do not match';
-        errBox.hidden = false;
-        return;
-      }
-      const resp = await fetch('/api/setup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: document.getElementById('username').value,
-          password: pw,
-        }),
-      });
-      if (resp.ok) {
-        window.location.href = '/';
-      } else {
-        const err = await resp.json().catch(() => ({}));
-        errBox.textContent = err.detail || 'Setup failed';
-        errBox.hidden = false;
-      }
-    });
-  </script>
+  <script src="/static/js/auth.js?v=1"></script>
 </body>
 </html>

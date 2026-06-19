@@ -20,6 +20,10 @@ spec:
       labels:
         {{- include "app.selectorLabels" . | nindent 8 }}
     spec:
+      {{- with .Values.app.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         runAsUser: {{ .Values.app.securityContext.runAsUser }}
         runAsGroup: {{ .Values.app.securityContext.runAsGroup }}
@@ -27,7 +31,8 @@ spec:
         fsGroup: {{ .Values.app.securityContext.runAsGroup }}
       containers:
         - name: web
-          image: {{ .Values.app.image }}
+          image: {{ .Values.app.image | quote }}
+          imagePullPolicy: {{ .Values.app.imagePullPolicy | default "Always" }}
           ports:
             - containerPort: {{ .Values.app.port }}
               protocol: TCP

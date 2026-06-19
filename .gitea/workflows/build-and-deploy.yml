@@ -1,0 +1,116 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  REGISTRY: git.k2patel.in
+  IMAGE_NAME: k2patel/apcupsd-client
+  HELM_RELEASE: apcupsd-client
+  HELM_NAMESPACE: apcupsd
+  CHART_PATH: ./chart
+  IMAGE_PULL_SECRET: gitea-registry
+
+jobs:
+  build-and-deploy:
+    runs-on: docker
+    steps:
+      - name: Checkout
+        shell: bash
+        env:
+          GITEA_TOKEN: ${{ github.token }}
+        run: |
+          git init --object-format=sha256 .
+          git remote add origin "https://git.k2patel.in/k2patel/apcupsd-client.git"
+          AUTH_HEADER="$(printf 'x-access-token:%s' "$GITEA_TOKEN" | base64 -w 0)"
+          git config --local "http.https://git.k2patel.in/.extraheader" "AUTHORIZATION: basic ${AUTH_HEADER}"
+          git -c protocol.version=2 fetch --no-tags --prune --depth=1 origin +refs/heads/main:refs/remotes/origin/main
+          git checkout --force refs/remotes/origin/main
+
+      - name: Determine image tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${{ gitea.ref }}" == refs/tags/v* ]]; then
+            echo "tag=${{ gitea.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$(printf '%s' '${{ gitea.sha }}' | cut -c1-12)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Login to Gitea registry
+        shell: bash
+        run: |
+          echo "${{ secrets.CONTAINER_TOKEN }}" | docker login "${{ env.REGISTRY }}" \
+            --username "${{ vars.CONTAINER_USER }}" \
+            --password-stdin
+
+      - name: Build image
+        shell: bash
+        run: |
+          docker build \
+            -t "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}" \
+            -t "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" \
+            .
+
+      - name: Push image
+        shell: bash
+        run: |
+          docker push "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}"
+          docker push "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+
+      - name: Install Kubernetes tools
+        shell: bash
+        run: |
+          curl -fsSL -o kubectl "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+      - name: Deploy Helm chart
+        shell: bash
+        env:
+          KUBECONFIG_DATA: ${{ secrets.KUBECONFIG_DATA }}
+          CONTAINER_USER: ${{ vars.CONTAINER_USER }}
+          CONTAINER_TOKEN: ${{ secrets.CONTAINER_TOKEN }}
+        run: |
+          if [[ -z "$KUBECONFIG_DATA" ]]; then
+            echo "::error::KUBECONFIG_DATA secret is not configured for this repository"
+            exit 1
+          fi
+
+          if printf '%s' "$KUBECONFIG_DATA" | tr -d '\r\n ' | base64 -d > /tmp/kubeconfig 2>/tmp/kubeconfig-decode.err; then
+            echo "Decoded KUBECONFIG_DATA as base64"
+          else
+            echo "KUBECONFIG_DATA is not base64; using it as raw kubeconfig content"
+            printf '%s' "$KUBECONFIG_DATA" > /tmp/kubeconfig
+          fi
+          chmod 600 /tmp/kubeconfig
+          export KUBECONFIG=/tmp/kubeconfig
+
+          kubectl create namespace "$HELM_NAMESPACE" \
+            --dry-run=client \
+            -o yaml | kubectl apply -f -
+
+          kubectl create secret docker-registry "$IMAGE_PULL_SECRET" \
+            --docker-server="$REGISTRY" \
+            --docker-username="$CONTAINER_USER" \
+            --docker-password="$CONTAINER_TOKEN" \
+            --namespace "$HELM_NAMESPACE" \
+            --dry-run=client \
+            -o yaml | kubectl apply -f -
+
+          if ! helm status "$HELM_RELEASE" --namespace "$HELM_NAMESPACE" >/dev/null 2>&1; then
+            echo "::error::Helm release $HELM_RELEASE is not installed. Bootstrap it with chart secrets before enabling automated image deploys."
+            exit 1
+          fi
+
+          helm upgrade "$HELM_RELEASE" "$CHART_PATH" \
+            --namespace "$HELM_NAMESPACE" \
+            --reuse-values \
+            --set app.image="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}" \
+            --set app.imagePullPolicy=IfNotPresent \
+            --set "app.imagePullSecrets[0].name=$IMAGE_PULL_SECRET"
+          rm -f /tmp/kubeconfig

@@ -1,13 +1,14 @@
 """Authentication endpoints: login, logout, first-run setup."""
 import re
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from ..auth import (
     clear_auth_cookies,
     get_stored_admin,
     is_admin_configured,
+    require_session_and_csrf,
     set_auth_cookies,
     store_admin,
     verify_password,
@@ -43,7 +44,7 @@ async def api_login(request: Request, response: Response, payload: LoginRequest)
 
 
 @router.post("/api/logout")
-async def api_logout(response: Response):
+async def api_logout(response: Response, user=Depends(require_session_and_csrf)):
     clear_auth_cookies(response)
     return {"ok": True}
 

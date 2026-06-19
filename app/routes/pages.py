@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 
 from ..auth import CSRF_COOKIE, current_user, is_admin_configured, make_csrf_token
 from ..config import load_config
+from ..settings import settings
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -15,7 +16,12 @@ def _ensure_csrf(request: Request, response):
     if not token:
         token = make_csrf_token()
         response.set_cookie(
-            CSRF_COOKIE, token, httponly=False, samesite="lax", path="/"
+            CSRF_COOKIE,
+            token,
+            httponly=False,
+            samesite="lax",
+            secure=settings.trust_proxy,
+            path="/",
         )
     return token
 

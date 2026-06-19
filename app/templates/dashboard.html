@@ -4,6 +4,17 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 {% endblock %}
 {% block content %}
+<section class="dashboard-header" aria-labelledby="dashboard-title">
+  <div>
+    <p class="eyebrow">Live fleet status</p>
+    <h1 id="dashboard-title">Power continuity dashboard</h1>
+  </div>
+  <div class="dashboard-clock" aria-live="polite">
+    <span class="pulse-dot" aria-hidden="true"></span>
+    <span id="dashboard-sync-state">Waiting for UPS telemetry</span>
+  </div>
+</section>
+
 <section class="fleet-overview" id="fleet-overview">
   <div class="fleet-card">
     <div class="fleet-stat">

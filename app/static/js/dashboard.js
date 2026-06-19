@@ -1,6 +1,6 @@
 // Debug configuration
 const DEBUG_ENABLED = localStorage.getItem('ups_debug') === 'true' || 
-                     new URLSearchParams(window.location.search).get('debug') === 'true' || true; // Temporarily enable debug
+                     new URLSearchParams(window.location.search).get('debug') === 'true';
 
 // Debug logging helper
 function debugLog(...args) {
@@ -39,6 +39,31 @@ window.upsDebug = {
 const evtSource = new EventSource('/api/stream');
 const charts = {};
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[ch]));
+}
+
+function apiUpsPath(name, suffix = '') {
+  return `/api/ups/${encodeURIComponent(name)}${suffix}`;
+}
+
+function getCard(name) {
+  return document.getElementById(`card-${name}`);
+}
+
+function setDashboardSyncState(message, live = false) {
+  const el = document.getElementById('dashboard-sync-state');
+  const wrapper = el?.closest('.dashboard-clock');
+  if (el) el.textContent = message;
+  if (wrapper) wrapper.classList.toggle('live', live);
+}
+
 // -------- Fleet overview poller --------
 async function refreshFleetOverview() {
   try {
@@ -53,7 +78,7 @@ async function refreshFleetOverview() {
     setText('fleet-watts', d.total_watts != null ? Math.round(d.total_watts) : '—');
     const minRT = d.min_timeleft_minutes;
     setText('fleet-min-runtime', minRT != null ? `${Math.round(minRT)} m` : '—');
-  } catch (e) { /* silent */ }
+  } catch (e) { setDashboardSyncState('Fleet summary unavailable', false); }
 }
 refreshFleetOverview();
 setInterval(refreshFleetOverview, 10000);
@@ -142,7 +167,7 @@ function toggleTileSelection(tile, additive) {
 // --- Redis-backed tile layout persistence ---
 async function loadServerTileConfig(name) {
   try {
-    const resp = await fetch(`/api/ups/${name}/ui_tiles`);
+    const resp = await fetch(apiUpsPath(name, '/ui_tiles'));
     if (!resp.ok) return null;
     return await resp.json();
   } catch { return null; }
@@ -164,13 +189,13 @@ async function loadServerTileConfig(name) {
     saveToStorage(CARD_SIZE_KEY, savedCardSizes);
     // Clear server layout
     try {
-      await window.apiFetch(`/api/ups/${name}/ui_tiles`, { method:'DELETE' });
+      await window.apiFetch(apiUpsPath(name, '/ui_tiles'), { method:'DELETE' });
       debugLog(`Cleared server layout for ${name}`);
     } catch(err) {
       debugWarn(`Failed to clear server layout for ${name}:`, err);
     }
     // Rebuild grid with defaults then cascade layout
-    const card = document.getElementById(`card-${name}`);
+    const card = getCard(name);
     if (!card) return;
     const grid = card.querySelector('[data-tile-grid]');
     if (!grid) return;
@@ -276,7 +301,7 @@ function autoArrangeTiles(name, grid) {
   ));
   
   // Auto-size the UPS card
-  const card = document.getElementById(`card-${name}`);
+  const card = getCard(name);
   if (card) {
     const cardWidth = Math.max(maxX + padding, 400);
     const cardHeight = Math.max(maxY + padding + 50, 300); // +50 for header
@@ -300,7 +325,7 @@ function persistCardSize(name, width, height) {
 }
 
 function restoreCardSize(name) {
-  const card = document.getElementById(`card-${name}`);
+  const card = getCard(name);
   const grid = card?.querySelector('[data-tile-grid]');
   if (!card || !grid) return false;
   
@@ -326,7 +351,7 @@ async function saveServerTileConfig(name) {
   const positions = savedTilePos[name] || {};
   const card_size = savedCardSizes[name] || null;
   try {
-    await window.apiFetch(`/api/ups/${name}/ui_tiles`, {
+    await window.apiFetch(apiUpsPath(name, '/ui_tiles'), {
       method: 'POST',
       body: JSON.stringify({ types, order, hidden: hiddenArr, custom, positions, card_size })
     });
@@ -334,7 +359,7 @@ async function saveServerTileConfig(name) {
 }
 
 function ensureUpsCard(name) {
-  let card = document.getElementById(`card-${name}`);
+  let card = getCard(name);
   if (card) {
     // Ensure add metric listener attached (server-rendered cards bypass creation path)
     const addBtn = card.querySelector('[data-add-metric]');
@@ -388,7 +413,7 @@ function ensureUpsCard(name) {
   }
   div.innerHTML = `
     <div class="card-header">
-      <h2>${name}</h2>
+      <h2><span class="state-dot" data-state-dot></span>${escapeHtml(name)}</h2>
       <div class="ups-connection" data-field-conn></div>
       ${uiCfg.allow_resize ? '<button class="mode-toggle" data-mode-btn title="Toggle compact view">⇳</button>' : ''}
       <button class="add-metric-btn" data-add-metric title="Add metric tile">+</button>
@@ -476,7 +501,7 @@ function initTilesFor(name, grid) {
     // Default cascade layout before positions applied
     tile.style.left = (10 + (idx * 20)) + 'px';
     tile.style.top = (10 + (idx * 20)) + 'px';
-    tile.innerHTML = `<div class="tile-controls">${renderTileSelect(name, tileDef)}</div><h4>${tileDef.short || tileDef.label}</h4><div class="tile-body"></div>`;
+    tile.innerHTML = `<div class="tile-controls">${renderTileSelect(name, tileDef)}</div><h4>${escapeHtml(tileDef.short || tileDef.label)}</h4><div class="tile-body"></div>`;
     if (savedTileHidden[name] && savedTileHidden[name][tileDef.id]) tile.classList.add('hidden');
     const resizeHandle = document.createElement('div');
     resizeHandle.className = 'tile-resize';
@@ -502,8 +527,8 @@ function initTilesFor(name, grid) {
 function renderTileSelect(name, tileDef) {
   if (tileDef.types.length <= 1) return '';
   const cur = savedTileTypes[name]?.[tileDef.id] || tileDef.defaultType;
-  return `<select data-tile-select data-name="${name}" data-tile-id="${tileDef.id}">` +
-    tileDef.types.map(t => `<option value="${t}" ${t===cur?'selected':''}>${t}</option>`).join('') + '</select>';
+  return `<select data-tile-select data-name="${escapeHtml(name)}" data-tile-id="${escapeHtml(tileDef.id)}">` +
+    tileDef.types.map(t => `<option value="${escapeHtml(t)}" ${t===cur?'selected':''}>${escapeHtml(t)}</option>`).join('') + '</select>';
 }
 
 function attachTileBehavior(name, tile, tileDef) {
@@ -638,7 +663,7 @@ function buildCustomTileVisualization(name, tileEl, tileCfg) {
       const ctx = document.getElementById(canvasId).getContext('2d');
       charts[canvasId] = new Chart(ctx, {
         type: tileCfg.chart === 'bar' ? 'bar' : 'line',
-        data: { labels: [], datasets: [{ label: tileCfg.metric, data: [], borderColor: '#9f7aea', backgroundColor: 'rgba(159,122,234,0.25)', tension: 0.25 }]},
+        data: { labels: [], datasets: [{ label: String(tileCfg.metric || ''), data: [], borderColor: '#4cc9c0', backgroundColor: 'rgba(76,201,192,0.20)', tension: 0.25 }]},
         options: { animation:false, responsive:true, maintainAspectRatio:false, scales:{ y:{ beginAtZero:true } } }
       });
     }
@@ -651,7 +676,7 @@ function createCustomTile(name, grid, tileCfg) {
   tile.dataset.tile = `custom-${tileCfg.id}`;
   tile.setAttribute('draggable','true');
   const headerLabel = METRIC_LABELS[tileCfg.metric] ? METRIC_LABELS[tileCfg.metric] : tileCfg.metric;
-  tile.innerHTML = `<div class="tile-controls"><button data-remove-tile title="Remove">✕</button></div><h4>${headerLabel}</h4><div class="tile-body"></div>`;
+  tile.innerHTML = `<div class="tile-controls"><button data-remove-tile title="Remove">✕</button></div><h4>${escapeHtml(headerLabel)}</h4><div class="tile-body"></div>`;
   grid.appendChild(tile);
   buildCustomTileVisualization(name, tile, tileCfg);
   const removeBtn = tile.querySelector('[data-remove-tile]');
@@ -662,7 +687,7 @@ function createCustomTile(name, grid, tileCfg) {
 }
 
 function rebuildAllTiles(name) {
-  const card = document.getElementById(`card-${name}`);
+  const card = getCard(name);
   if (!card) return;
   const grid = card.querySelector('[data-tile-grid]');
   if (!grid) return;
@@ -689,7 +714,7 @@ function removeCustomTile(name, id, tileEl) {
 
 function seedHistoricalData(name, tileCfg) {
   if (tileCfg.source !== 'history') return;
-  fetch(`/api/ups/${name}/metric/${tileCfg.metric}?limit=120`).then(r=>r.json()).then(points => {
+  fetch(apiUpsPath(name, `/metric/${encodeURIComponent(tileCfg.metric)}?limit=120`)).then(r=>r.json()).then(points => {
     const canvasId = `tile-${name}-custom-${tileCfg.id}`;
     if (tileCfg.chart === 'gauge') return; // gauge only shows live
     const c = charts[canvasId];
@@ -705,7 +730,7 @@ function loadTileHistoricalData(name, metric, canvasId) {
   // For other metrics, use smaller dataset
   const limit = metric === 'DERIVED_WATTS' ? 4320 : 60;
   
-  fetch(`/api/ups/${name}/metric/${metric}?limit=${limit}`).then(r=>r.json()).then(points => {
+  fetch(apiUpsPath(name, `/metric/${encodeURIComponent(metric)}?limit=${limit}`)).then(r=>r.json()).then(points => {
     const c = charts[canvasId];
     if (!c) return;
     
@@ -823,7 +848,7 @@ function openMetricModal(name) {
     savedCustomTiles[name] = savedCustomTiles[name] || [];
     savedCustomTiles[name].push(cfg);
     try { localStorage.setItem(CUSTOM_TILES_KEY, JSON.stringify(savedCustomTiles)); } catch(_) {}
-    const card = document.getElementById(`card-${name}`);
+    const card = getCard(name);
     const grid = card.querySelector('[data-tile-grid]');
     createCustomTile(name, grid, cfg);
     persistTileOrder(name, grid);
@@ -936,12 +961,16 @@ function updateStaleStatuses() {
   const now = Date.now() / 1000;
   Object.entries(lastUpdateTs).forEach(([name, ts]) => {
     if (now - ts > UPS_STALE_SECONDS) {
-      const card = document.getElementById(`card-${name}`);
+      const card = getCard(name);
       if (card) {
         const statusElement = card.querySelector('.ups-status');
         if (statusElement) {
           statusElement.textContent = 'STALE';
           statusElement.className = 'ups-status unknown';
+        }
+        const stateDot = card.querySelector('[data-state-dot]');
+        if (stateDot) {
+          stateDot.className = 'state-dot';
         }
       }
     }
@@ -961,6 +990,7 @@ evtSource.onmessage = (e) => {
 
   const snapshots = payload.snapshots || {};
   const upsMeta = payload.upsMeta || [];
+  setDashboardSyncState(`Live telemetry ${new Date().toLocaleTimeString()}`, true);
 
   // Reconcile cards: add new, remove stale
   const desiredNames = new Set(upsMeta.map(m => m.name));
@@ -1018,6 +1048,10 @@ evtSource.onmessage = (e) => {
       statusElement.textContent = status;
       statusElement.className = 'ups-status ' + getStatusClass(status);
     }
+    const stateDot = card.querySelector('[data-state-dot]');
+    if (stateDot) {
+      stateDot.className = 'state-dot ' + getStatusClass(status);
+    }
 
     const load = parseFloat(snap['LOADPCT']) || 0;
     const batt = parseFloat(snap['BCHARGE']) || 0;
@@ -1056,7 +1090,7 @@ evtSource.onmessage = (e) => {
       let metricVal;
       try { metricVal = parseFloat(String(metricValRaw).split(/\s+/)[0]); } catch(_) { return; }
       if (ct.chart === 'gauge') {
-        const gauge = document.querySelector(`#card-${name} [data-tile-grid] .tile[data-tile="custom-${ct.id}"] [data-custom-gauge]`);
+        const gauge = card?.querySelector(`[data-tile-grid] .tile[data-tile="custom-${ct.id}"] [data-custom-gauge]`);
         if (gauge) {
           const fill = gauge.querySelector('.gauge-fill');
           const text = gauge.querySelector('.gauge-text');
@@ -1121,8 +1155,8 @@ evtSource.onmessage = (e) => {
   // Fetch events & energy asynchronously (tiles)
   upsMeta.forEach(meta => {
     if (uiCfg.show_events === false) return;
-    fetch(`/api/ups/${meta.name}/events`).then(r => r.json()).then(events => {
-      const card = document.getElementById(`card-${meta.name}`);
+    fetch(apiUpsPath(meta.name, '/events')).then(r => r.json()).then(events => {
+      const card = getCard(meta.name);
       if (!card) return;
       const list = card.querySelector('[data-events]');
       if (!list) return;
@@ -1141,9 +1175,9 @@ evtSource.onmessage = (e) => {
       });
     }).catch(()=>{});
     if (uiCfg.show_energy) {
-      fetch(`/api/ups/${meta.name}/energy`).then(r => r.json()).then(data => {
+      fetch(apiUpsPath(meta.name, '/energy')).then(r => r.json()).then(data => {
         if (!data || data.kwh_today == null) return;
-        const card = document.getElementById(`card-${meta.name}`);
+        const card = getCard(meta.name);
         if (!card) return;
         const energyVal = card.querySelector('[data-energy-val]');
         if (energyVal) energyVal.textContent = data.kwh_today.toFixed(2) + ' kWh';
@@ -1156,12 +1190,12 @@ evtSource.onmessage = (e) => {
 
 async function updateEventFooter(name) {
   try {
-    const resp = await fetch(`/api/ups/${name}/events`);
+    const resp = await fetch(apiUpsPath(name, '/events'));
     if (!resp.ok) return;
     const events = await resp.json();
     if (!Array.isArray(events) || events.length === 0) return;
     const latest = events[0];
-    const card = document.getElementById(`card-${name}`);
+    const card = getCard(name);
     if (!card) return;
     const footer = card.querySelector('[data-ups-footer]');
     if (!footer) return;
@@ -1173,7 +1207,11 @@ async function updateEventFooter(name) {
     } else {
       text = latest.detail || latest.msg || latest.raw || '';
     }
-    footer.innerHTML = `<span class="event-marquee">${text}</span>`;
+    footer.textContent = '';
+    const marquee = document.createElement('span');
+    marquee.className = 'event-marquee';
+    marquee.textContent = text;
+    footer.appendChild(marquee);
   } catch {}
 }
 
@@ -1289,7 +1327,7 @@ function persistTilePositions(name, grid) {
   // Only grow the card if tiles overflow its current bounds. Never shrink
   // the user's manually-sized card.
   if (maxX > 0 && maxY > 0) {
-    const card = document.getElementById(`card-${name}`);
+    const card = getCard(name);
     if (card) {
       const neededW = maxX + 20;   // 20px right padding
       const neededH = maxY + 70;   // 70px for header + bottom padding

@@ -8,8 +8,10 @@
   <link rel="stylesheet" href="/static/css/login.css" />
 </head>
 <body class="auth-body">
-  <div class="auth-card">
+  <div class="auth-card" data-auth-card="login">
+    <div class="auth-mark">APC</div>
     <h1>UPS Dashboard</h1>
+    <p class="muted">Sign in to monitor runtime, load, transfers, and alerts.</p>
     <form id="login-form">
       <div class="form-field">
         <label for="username">Username</label>
@@ -23,27 +25,6 @@
       <div id="login-error" class="login-error" hidden></div>
     </form>
   </div>
-  <script>
-    document.getElementById('login-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const errBox = document.getElementById('login-error');
-      errBox.hidden = true;
-      const resp = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: document.getElementById('username').value,
-          password: document.getElementById('password').value,
-        }),
-      });
-      if (resp.ok) {
-        window.location.href = '/';
-      } else {
-        const err = await resp.json().catch(() => ({}));
-        errBox.textContent = err.detail || 'Login failed';
-        errBox.hidden = false;
-      }
-    });
-  </script>
+  <script src="/static/js/auth.js?v=1"></script>
 </body>
 </html>

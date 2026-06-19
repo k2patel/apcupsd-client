@@ -5,13 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{% block title %}UPS Dashboard{% endblock %}</title>
   <meta name="csrf-token" content="{{ request.cookies.get('csrf_token', '') }}" />
-  <link rel="stylesheet" href="/static/css/base.css?v=4" />
-  <link rel="stylesheet" href="/static/css/style.css?v=4" />
+  <link rel="stylesheet" href="/static/css/base.css?v=5" />
+  <link rel="stylesheet" href="/static/css/style.css?v=5" />
   {% block head_extra %}{% endblock %}
 </head>
 <body>
   <header class="site-header">
-    <div class="brand"><a href="/">⚡ APC UPS Dashboard</a></div>
+    <div class="brand">
+      <a href="/">
+        <span class="brand-mark" aria-hidden="true">APC</span>
+        <span class="brand-copy">
+          <span class="brand-title">UPS Dashboard</span>
+          <span class="brand-subtitle">Power continuity</span>
+        </span>
+      </a>
+    </div>
     <nav class="main-nav">
       <a href="/" class="{% if active_nav == 'dashboard' %}active{% endif %}">Dashboard</a>
       <a href="/events" class="{% if active_nav == 'events' %}active{% endif %}">Events</a>

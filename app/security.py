@@ -12,14 +12,16 @@ from .settings import settings
 
 CSP_DIRECTIVES = (
     "default-src 'self'; "
-    "script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; "
+    "script-src 'self' https://cdn.jsdelivr.net; "
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data:; "
     "font-src 'self' data:; "
     "connect-src 'self'; "
     "base-uri 'self'; "
     "form-action 'self'; "
-    "frame-ancestors 'none'"
+    "frame-ancestors 'none'; "
+    "object-src 'none'; "
+    "upgrade-insecure-requests"
 )
 
 
@@ -33,6 +35,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "same-origin")
         response.headers.setdefault("Content-Security-Policy", CSP_DIRECTIVES)
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), payment=()",
+        )
+        response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
         if settings.trust_proxy:
             response.headers.setdefault(
                 "Strict-Transport-Security",
