@@ -10,7 +10,7 @@ from starlette.types import ASGIApp
 
 from .settings import settings
 
-CSP_DIRECTIVES = (
+CSP_DIRECTIVES_BASE = (
     "default-src 'self'; "
     "script-src 'self' https://cdn.jsdelivr.net; "
     "style-src 'self' 'unsafe-inline'; "
@@ -20,9 +20,14 @@ CSP_DIRECTIVES = (
     "base-uri 'self'; "
     "form-action 'self'; "
     "frame-ancestors 'none'; "
-    "object-src 'none'; "
-    "upgrade-insecure-requests"
+    "object-src 'none'"
 )
+
+
+def _csp_directives() -> str:
+    if settings.trust_proxy:
+        return f"{CSP_DIRECTIVES_BASE}; upgrade-insecure-requests"
+    return CSP_DIRECTIVES_BASE
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -34,7 +39,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "same-origin")
-        response.headers.setdefault("Content-Security-Policy", CSP_DIRECTIVES)
+        response.headers.setdefault("Content-Security-Policy", _csp_directives())
         response.headers.setdefault(
             "Permissions-Policy",
             "camera=(), microphone=(), geolocation=(), payment=()",
