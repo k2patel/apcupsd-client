@@ -20,13 +20,9 @@ jobs:
     steps:
       - name: Checkout
         shell: bash
-        env:
-          GITEA_TOKEN: ${{ github.token }}
         run: |
-          git init --object-format=sha256 .
-          git remote add origin "https://git.k2patel.in/k2patel/apcupsd-client.git"
-          AUTH_HEADER="$(printf 'x-access-token:%s' "$GITEA_TOKEN" | base64 -w 0)"
-          git config --local "http.https://git.k2patel.in/.extraheader" "AUTHORIZATION: basic ${AUTH_HEADER}"
+          git init .
+          git remote add origin "ssh://git@git.k2patel.in:2222/k2patel/apcupsd-client.git"
           git -c protocol.version=2 fetch --no-tags --prune --depth=1 origin +refs/heads/main:refs/remotes/origin/main
           git checkout --force refs/remotes/origin/main
 
