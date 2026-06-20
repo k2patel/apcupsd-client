@@ -121,7 +121,12 @@ class UIConfig(BaseModel):
     allow_resize: bool = True
     enable_transfer_burst_alert: bool = False
     enable_voltage_deviation_alert: bool = False
-    energy_cost_per_kwh: float = 0.0
+    energy_cost_per_kwh: float = Field(0.0, ge=0)
+
+    @field_validator("energy_cost_per_kwh", mode="after")
+    @classmethod
+    def round_energy_cost_per_kwh(cls, value: float) -> float:
+        return round(float(value), 4)
 
 
 class AppConfig(BaseModel):

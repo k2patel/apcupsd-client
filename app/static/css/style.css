@@ -138,6 +138,9 @@
 .tile.hidden { display: none; }
 .tile.dragging { opacity: 0.5; border: 1px dashed var(--accent); }
 .tile.selected { outline: 2px solid var(--accent); }
+.tile .energy-summary { flex-direction: column; gap: 4px; text-align: center; }
+.tile .energy-summary .big-value { font-size: 18px; line-height: 1.2; }
+.tile .energy-cost { color: var(--success); font-size: 13px; font-weight: 700; }
 .tile-controls { position: absolute; top: 4px; right: 4px; display: flex; gap: 4px; }
 .tile-controls select {
   background: var(--surface-3);

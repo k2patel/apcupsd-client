@@ -120,6 +120,23 @@ def test_ups_energy_with_data(authed_client, fake_redis):
     assert body["kwh_today"] == 1.0
 
 
+def test_ups_energy_uses_four_decimal_cost_rate(authed_client, fake_redis):
+    _add_ups(authed_client)
+    authed_client.put(
+        "/api/config/ui",
+        json={"show_energy": True, "energy_cost_per_kwh": 0.1365},
+    )
+    day_str = time.strftime("%Y%m%d")
+    fake_redis.set(f"ups:energy:u1:{day_str}", "7200000")  # 2 kWh
+
+    r = authed_client.get("/api/ups/u1/energy")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["kwh_today"] == 2.0
+    assert body["cost_today"] == 0.273
+
+
 def test_ups_health(authed_client, fake_redis):
     _add_ups(authed_client)
     fake_redis.set("ups:health:last_ok:u1", "12345")

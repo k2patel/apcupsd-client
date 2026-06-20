@@ -1,6 +1,7 @@
 """Configuration CRUD endpoints (UPS, SMTP, UI). All require session+CSRF for writes."""
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import ValidationError
 
 from ..auth import require_session, require_session_and_csrf
 from ..config import SMTPConfig, UIConfig, UPSConfig
@@ -142,6 +143,9 @@ async def update_ui_config(
     for k, v in payload.items():
         if k in ui_dict:
             ui_dict[k] = v
-    new_ui = UIConfig(**ui_dict)
+    try:
+        new_ui = UIConfig(**ui_dict)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors())
     await config_manager.update_ui_config(new_ui)
     return {"message": "UI config updated", "ui": new_ui.model_dump()}

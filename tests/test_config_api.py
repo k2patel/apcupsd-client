@@ -133,3 +133,22 @@ def test_ui_config_update(authed_client):
     body = r.json()
     assert body["ui"]["show_energy"] is True
     assert body["ui"]["energy_cost_per_kwh"] == 0.15
+
+
+def test_ui_config_energy_cost_keeps_four_decimal_rate(authed_client):
+    r = authed_client.put(
+        "/api/config/ui",
+        json={"show_energy": True, "energy_cost_per_kwh": 0.13654},
+    )
+
+    assert r.status_code == 200
+    assert r.json()["ui"]["energy_cost_per_kwh"] == 0.1365
+
+
+def test_ui_config_rejects_negative_energy_cost(authed_client):
+    r = authed_client.put(
+        "/api/config/ui",
+        json={"energy_cost_per_kwh": -0.1},
+    )
+
+    assert r.status_code == 422

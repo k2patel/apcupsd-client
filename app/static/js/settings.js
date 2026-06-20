@@ -1,5 +1,11 @@
 // Settings page
 (async function () {
+  function normalizeEnergyRate(value) {
+    const parsed = Number.parseFloat(value);
+    if (!Number.isFinite(parsed) || parsed < 0) return '0.0000';
+    return parsed.toFixed(4);
+  }
+
   async function loadUi() {
     const r = await window.apiFetch('/api/config/ui');
     if (!r.ok) return;
@@ -9,6 +15,7 @@
       const el = form.elements[k];
       if (!el) return;
       if (el.type === 'checkbox') el.checked = !!v;
+      else if (k === 'energy_cost_per_kwh') el.value = normalizeEnergyRate(v);
       else el.value = v;
     });
   }
@@ -37,7 +44,7 @@
       color_badges: f.color_badges.checked,
       enable_transfer_burst_alert: f.enable_transfer_burst_alert.checked,
       enable_voltage_deviation_alert: f.enable_voltage_deviation_alert.checked,
-      energy_cost_per_kwh: parseFloat(f.energy_cost_per_kwh.value) || 0,
+      energy_cost_per_kwh: Number.parseFloat(normalizeEnergyRate(f.energy_cost_per_kwh.value)),
     };
     const r = await window.apiFetch('/api/config/ui', {
       method: 'PUT', body: JSON.stringify(payload),

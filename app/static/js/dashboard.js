@@ -529,7 +529,7 @@ function initTilesFor(name, grid) {
     energyTile.dataset.tile = 'energy';
     energyTile.style.left = '12px';
     energyTile.style.top = '12px';
-    energyTile.innerHTML = `<h4>Energy Today</h4><div class="tile-body"><span class="big-value" data-energy-val>-- kWh</span></div>`;
+    energyTile.innerHTML = `<h4>Energy Today</h4><div class="tile-body energy-summary"><span class="big-value" data-energy-val>-- kWh</span><span class="energy-cost" data-energy-cost>--</span></div>`;
     const resizeHandle = document.createElement('div'); resizeHandle.className='tile-resize'; energyTile.appendChild(resizeHandle);
     grid.appendChild(energyTile);
   }
@@ -1194,11 +1194,19 @@ evtSource.onmessage = (e) => {
     }).catch(()=>{});
     if (uiCfg.show_energy) {
       fetch(apiUpsPath(meta.name, '/energy')).then(r => r.json()).then(data => {
-        if (!data || data.kwh_today == null) return;
         const card = getCard(meta.name);
         if (!card) return;
         const energyVal = card.querySelector('[data-energy-val]');
-        if (energyVal) energyVal.textContent = data.kwh_today.toFixed(2) + ' kWh';
+        const energyCost = card.querySelector('[data-energy-cost]');
+        if (!data || data.kwh_today == null) {
+          if (energyVal) energyVal.textContent = '-- kWh';
+          if (energyCost) energyCost.textContent = '--';
+          return;
+        }
+        if (energyVal) energyVal.textContent = `${Number(data.kwh_today).toFixed(4)} kWh`;
+        if (energyCost) {
+          energyCost.textContent = data.cost_today == null ? '--' : `$${Number(data.cost_today).toFixed(4)}`;
+        }
       }).catch(()=>{});
     }
   });
