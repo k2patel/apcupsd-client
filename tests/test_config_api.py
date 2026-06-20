@@ -127,12 +127,23 @@ def test_ui_config_default(authed_client):
 def test_ui_config_update(authed_client):
     r = authed_client.put(
         "/api/config/ui",
-        json={"show_energy": True, "energy_cost_per_kwh": 0.15},
+        json={
+            "show_energy": True,
+            "energy_cost_per_kwh": 0.15,
+            "show_runtime": False,
+            "show_watts": False,
+            "show_headroom": False,
+            "allow_resize": False,
+        },
     )
     assert r.status_code == 200
     body = r.json()
     assert body["ui"]["show_energy"] is True
     assert body["ui"]["energy_cost_per_kwh"] == 0.15
+    assert body["ui"]["show_runtime"] is False
+    assert body["ui"]["show_watts"] is False
+    assert body["ui"]["show_headroom"] is False
+    assert body["ui"]["allow_resize"] is False
 
 
 def test_ui_config_energy_cost_keeps_four_decimal_rate(authed_client):

@@ -136,6 +136,7 @@ try {
 } catch(_) {}
 // Set defaults
 uiCfg.allow_resize = uiCfg.allow_resize !== false;
+if (uiCfgEl) uiCfgEl.classList.toggle('resize-disabled', uiCfg.allow_resize === false);
 // Human-friendly metric labels for dropdown & headers
 const METRIC_LABELS = {
   'LOADPCT': 'UPS Load %',
@@ -155,13 +156,31 @@ const lastUpdateTs = {};
 const UPS_STALE_SECONDS = 120; // mark offline after 2 minutes inactivity
 // Freeform tile layout enhancements
 const SNAP_GRID = 20; // pixel grid for snapping
+const SNAP_ORIGIN = 10; // default tile layout starts at 10px
 let selectedTiles = new Set();
-function snap(v) { return Math.round(v / SNAP_GRID) * SNAP_GRID; }
+function snap(v) {
+  if (v <= SNAP_ORIGIN) return SNAP_ORIGIN;
+  return SNAP_ORIGIN + Math.round((v - SNAP_ORIGIN) / SNAP_GRID) * SNAP_GRID;
+}
 function clearSelection() { selectedTiles.forEach(t => t.classList.remove('selected')); selectedTiles.clear(); }
 function toggleTileSelection(tile, additive) {
   if (!additive) clearSelection();
   if (selectedTiles.has(tile)) { tile.classList.remove('selected'); selectedTiles.delete(tile); }
   else { tile.classList.add('selected'); selectedTiles.add(tile); }
+}
+
+function applyCardFeatureVisibility(card) {
+  const runtimeBadge = card.querySelector('[data-badge="runtime"]');
+  const wattsBadge = card.querySelector('[data-badge="watts"]');
+  const headroomBadge = card.querySelector('[data-badge="headroom"]');
+  if (runtimeBadge) runtimeBadge.hidden = uiCfg.show_runtime === false;
+  if (wattsBadge) wattsBadge.hidden = uiCfg.show_watts === false;
+  if (headroomBadge) headroomBadge.hidden = uiCfg.show_headroom === false;
+}
+
+function clearEventFooter(name) {
+  const footer = getCard(name)?.querySelector('[data-ups-footer]');
+  if (footer) footer.textContent = '';
 }
 
 // --- Redis-backed tile layout persistence ---
@@ -418,6 +437,7 @@ function ensureUpsCard(name) {
     if (!card.style.width && savedCardSizes[name]) {
       restoreCardSize(name);
     }
+    applyCardFeatureVisibility(card);
     return card;
   }
   const container = document.getElementById('ups-cards');
@@ -459,6 +479,7 @@ function ensureUpsCard(name) {
     attachResizeBehavior(div, handle);
   }
   container.appendChild(div);
+  applyCardFeatureVisibility(div);
   
   // Observe card for resize events to update footer position
   if (typeof ro !== 'undefined') {
@@ -1029,7 +1050,11 @@ evtSource.onmessage = (e) => {
     const conn = card.querySelector('.ups-connection');
     if (conn) conn.textContent = `${meta.host}:${meta.port}`;
     // Update event footer asynchronously (lightweight)
-    updateEventFooter(meta.name);
+    if (uiCfg.show_events === false) {
+      clearEventFooter(meta.name);
+    } else {
+      updateEventFooter(meta.name);
+    }
   });
 
   Object.entries(snapshots).forEach(([name, snap]) => {

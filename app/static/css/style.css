@@ -24,6 +24,7 @@
 }
 .card:hover { border-color: var(--border-hi); box-shadow: var(--shadow-md); }
 .card.resizing { outline: 2px dashed var(--accent); }
+#ups-cards.resize-disabled .card { resize: none; }
 
 .card-header {
   display: flex;
